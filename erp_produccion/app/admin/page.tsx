@@ -1,6 +1,7 @@
 'use client'
 
 import UserStatsGrid from "@/components/UserStatsGrid"
+import DynamicReportBuilder from "@/components/DynamicReportBuilder"
 import { useEffect, useState } from "react"
 
 export default function AdminDashboard() {
@@ -58,7 +59,11 @@ export default function AdminDashboard() {
             </div>
 
             <div className="mt-10 space-y-6">
+                {/* 1. Primera sección (Estadísticas Originales) */}
                 {stats && <UserStatsGrid stats={stats} />}
+
+                {/* 2. Segunda sección (Generador Dinámico debajo) */}
+                <DynamicReportBuilder />
             </div>
         </div>
     )
