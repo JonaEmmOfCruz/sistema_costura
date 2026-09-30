@@ -4,17 +4,9 @@ import { useEffect, useState } from "react"
 import ReusableTable from "@/components/ReusableTable"
 import { Icon } from "@iconify/react"
 
-interface ModalState {
-    isOpen: boolean;
-    type: 'confirm' | 'success' | 'error';
-    message: string;
-    onConfirm?: () => void;
-}
-
 export default function OrdenesCortadasPage() {
     const [loading, setLoading] = useState(true)
     const [ordenesCortadas, setOrdenesCortadas] = useState<any[]>([])
-    const [modal, setModal] = useState<ModalState>({ isOpen: false, type: 'confirm', message: '' })
 
     const cargarOrdenesCortadas = async () => {
         try {
@@ -34,42 +26,30 @@ export default function OrdenesCortadasPage() {
         cargarOrdenesCortadas()
     }, [])
 
-    // Paso 1: Abrir el modal de confirmación
-    const handleAsignacionEquitativa = (orden: any) => {
-        setModal({
-            isOpen: true,
-            type: 'confirm',
-            message: `¿Deseas asignar equitativamente la cantidad de esta OP (${orden.cantidad}) entre los operadores disponibles?`,
-            onConfirm: () => ejecutarAsignacion(orden.id)
-        })
-    }
-
-    // Paso 2: Ejecutar la API si el usuario confirma
-    const ejecutarAsignacion = async (orden_id: string) => {
-        // Cerramos el modal temporalmente o mostramos uno de carga (aquí lo cerramos)
-        setModal({ ...modal, isOpen: false })
+    const handleAsignacionEquitativa = async (orden: any) => {
+        if (!confirm(`¿Deseas asignar equitativamente la cantidad de esta OP (${orden.cantidad}) entre los operadores disponibles?`)) {
+            return;
+        }
 
         try {
             const res = await fetch('/api/admin_costura/asignar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orden_id })
+                body: JSON.stringify({ orden_id: orden.id })
             })
             const data = await res.json()
             
             if (data.success) {
-                setModal({ isOpen: true, type: 'success', message: data.message })
+                alert(data.message)
                 cargarOrdenesCortadas()
             } else {
-                setModal({ isOpen: true, type: 'error', message: data.message || "No se puede realizar la asignación en este momento." })
+                alert(data.message || "No se puede realizar la asignación en este momento.")
             }
         } catch (error) {
             console.error("Error en asignación equitativa:", error)
-            setModal({ isOpen: true, type: 'error', message: "Ocurrió un error inesperado al intentar realizar la asignación." })
+            alert("Ocurrió un error inesperado al intentar realizar la asignación.")
         }
     }
-
-    const cerrarModal = () => setModal({ ...modal, isOpen: false })
 
     const columns = [
         {
@@ -133,7 +113,7 @@ export default function OrdenesCortadasPage() {
     }
 
     return (
-        <div className="mx-auto space-y-6 p-6 relative">
+        <div className="mx-auto space-y-6 p-6">
             <div>
                 <h1 className="text-2xl font-bold text-gray-800">Historial de Órdenes Cortadas</h1>
                 <p className="text-sm text-gray-500 mt-1">
@@ -149,52 +129,6 @@ export default function OrdenesCortadasPage() {
                     searchPlaceholder="Buscar por op..."
                 />
             </div>
-
-            {/* Modal Minimalista */}
-            {modal.isOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
-                        <div className="flex items-center gap-3">
-                            {modal.type === 'confirm' && <Icon icon="lucide:help-circle" className="text-blue-500 text-2xl" />}
-                            {modal.type === 'success' && <Icon icon="lucide:check-circle-2" className="text-emerald-500 text-2xl" />}
-                            {modal.type === 'error' && <Icon icon="lucide:x-circle" className="text-red-500 text-2xl" />}
-                            <h3 className="font-semibold text-gray-800 text-lg">
-                                {modal.type === 'confirm' ? 'Confirmar Asignación' : modal.type === 'success' ? 'Éxito' : 'Error'}
-                            </h3>
-                        </div>
-                        
-                        <p className="text-gray-600 text-sm leading-relaxed">
-                            {modal.message}
-                        </p>
-
-                        <div className="flex justify-end gap-2 pt-2">
-                            {modal.type === 'confirm' ? (
-                                <>
-                                    <button 
-                                        onClick={cerrarModal}
-                                        className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button 
-                                        onClick={modal.onConfirm}
-                                        className="px-4 py-2 text-sm font-medium text-white bg-slate-800 hover:bg-slate-700 rounded-lg shadow-sm transition-colors"
-                                    >
-                                        Asignar
-                                    </button>
-                                </>
-                            ) : (
-                                <button 
-                                    onClick={cerrarModal}
-                                    className="px-4 py-2 text-sm font-medium text-white bg-slate-800 hover:bg-slate-700 rounded-lg shadow-sm transition-colors w-full"
-                                >
-                                    Entendido
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     )
 }

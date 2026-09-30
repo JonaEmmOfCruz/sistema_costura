@@ -8,14 +8,14 @@ export async function GET() {
             SELECT 
                 c.*,
                 CASE 
-                    WHEN t.id IS NOT NULL THEN 'asignado'
+                    WHEN t.op IS NOT NULL THEN 'asignado'
                     ELSE c.estatus
                 END AS estatus
             FROM admin_costura_cortes c
             LEFT JOIN (
-                SELECT DISTINCT op, orden_id 
+                SELECT DISTINCT op 
                 FROM operador_tiempos_costura
-            ) t ON (c.op = t.op OR c.orden_id = t.orden_id OR c.id = t.orden_id)
+            ) t ON c.op = t.op
             ORDER BY c.id DESC
         `)
 

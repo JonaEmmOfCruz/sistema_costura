@@ -4,18 +4,21 @@ import { RowDataPacket } from "mysql2";
 
 export async function GET() {
     try {
+        // SOLUCIÓN 3: Sumar lo asignado para verificar si la orden ya se asignó completamente
         const [rows] = await pool.query<RowDataPacket[]>(`
             SELECT 
                 c.*,
                 CASE 
-                    WHEN t.op IS NOT NULL THEN 'asignado'
+                    WHEN COALESCE(a.total_asignado, 0) >= c.cantidad THEN 'asignado'
+                    WHEN c.estatus = 'asignado' THEN 'asignado'
                     ELSE c.estatus
                 END AS estatus
             FROM admin_costura_cortes c
             LEFT JOIN (
-                SELECT DISTINCT op 
-                FROM operador_tiempos_costura
-            ) t ON c.op = t.op
+                SELECT op, SUM(cantidad_asignada) as total_asignado 
+                FROM admin_costura_asignaciones
+                GROUP BY op
+            ) a ON c.op = a.op
             ORDER BY c.id DESC
         `)
 

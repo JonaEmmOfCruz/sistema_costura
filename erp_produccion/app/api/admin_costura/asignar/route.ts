@@ -15,7 +15,6 @@ export async function POST(request: Request) {
         try {
             await connection.beginTransaction()
 
-            // 1. Obtener la orden asegurándonos que tenga estatus 'cortada'
             const [ordenRows]: any = await connection.query(
                 `SELECT * FROM admin_costura_cortes 
                  WHERE (orden_id = ? OR id = ?) AND estatus = 'cortada'`,
@@ -31,7 +30,9 @@ export async function POST(request: Request) {
             const cantidadTotal = Number(orden.cantidad) || 0
             const realOrdenId = orden.orden_id || orden.id
 
-            // 2. Obtener operadores disponibles que NO tengan ninguna OP asignada en admin_costura_asignaciones
+            // SOLUCIÓN 1: Validar que el operador no tenga asignaciones "pendientes"
+            // Nota: Asegúrate de que la tabla admin_costura_asignaciones tenga un campo 'estatus'.
+            // Si manejas el fin de la orden de otra forma (ej. borrando el registro), remueve la línea del AND a.estatus.
             const [operadoresRows]: any = await connection.query(`
                 SELECT u.id AS usuario_id, u.nombre 
                 FROM usuarios u
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
                   AND NOT EXISTS (
                       SELECT 1 FROM admin_costura_asignaciones a 
                       WHERE a.id_operador = u.id
+                      AND a.estatus NOT IN ('completado', 'terminado', 'entregado') 
                   )
             `)
 
@@ -57,15 +59,14 @@ export async function POST(request: Request) {
             const cantidadBase = Math.floor(cantidadTotal / totalOperadores)
             let sobrante = cantidadTotal % totalOperadores
 
-            // 3. Insertar la porción correspondiente para cada operador libre
             for (let i = 0; i < totalOperadores; i++) {
                 const opRow = operadoresRows[i]
                 const asignada = cantidadBase + (i === 0 ? sobrante : 0)
 
                 await connection.query(
                     `INSERT INTO admin_costura_asignaciones 
-                    (orden_id, rq, op, producto, nombre, cantidad_asignada, id_operador, nombre_operador) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    (orden_id, rq, op, producto, nombre, cantidad_asignada, id_operador, nombre_operador, estatus) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'asignado')`,
                     [
                         realOrdenId, 
                         orden.rq, 
@@ -78,6 +79,12 @@ export async function POST(request: Request) {
                     ]
                 )
             }
+
+            // SOLUCIÓN 2: Actualizar el estatus de la orden original a 'asignado'
+            await connection.query(
+                `UPDATE admin_costura_cortes SET estatus = 'asignado' WHERE id = ?`,
+                [orden.id]
+            )
 
             await connection.commit()
             connection.release()
