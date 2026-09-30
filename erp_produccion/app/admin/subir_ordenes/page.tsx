@@ -348,7 +348,7 @@ export default function SubirOrdenesPage() {
                     ) : (
                         <>
                             <Icon icon="lucide:upload-cloud" className="text-xl" />
-                            <span>Importar Órdenes</span>
+                            <span>Importar Órdenes de producción</span>
                         </>
                     )}
                 </button>
