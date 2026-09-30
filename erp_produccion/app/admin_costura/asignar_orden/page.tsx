@@ -39,12 +39,10 @@ export default function OrdenesCortadasPage() {
             })
             const data = await res.json()
             
-            // Si la API responde con éxito, muestra el mensaje y recarga la tabla
             if (data.success) {
                 alert(data.message)
                 cargarOrdenesCortadas()
             } else {
-                // Si la API rechaza la asignación porque ya tienen OP asignada, muestra la alerta detallada del backend
                 alert(data.message || "No se puede realizar la asignación en este momento.")
             }
         } catch (error) {
@@ -56,15 +54,24 @@ export default function OrdenesCortadasPage() {
     const columns = [
         {
             header: 'Asignación',
-            accessorKey: (row: any) => (
-                <button
-                    onClick={() => handleAsignacionEquitativa(row)}
-                    className="px-3 py-1 bg-slate-600 text-white rounded-lg text-xs hover:bg-slate-700 shadow-sm flex items-center gap-1.5"
-                >
-                    <Icon icon="lucide:users" className="text-sm" />
-                    <span>Asignar</span>
-                </button>
-            )
+            accessorKey: (row: any) => {
+                const estaAsignada = row.estatus?.toLowerCase() === 'asignado';
+
+                return (
+                    <button
+                        onClick={() => handleAsignacionEquitativa(row)}
+                        disabled={estaAsignada}
+                        className={`px-3 py-1 text-xs rounded-lg shadow-sm flex items-center gap-1.5 transition-colors ${
+                            estaAsignada
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                                : 'bg-slate-700 text-white hover:bg-slate-800'
+                        }`}
+                    >
+                        <Icon icon={estaAsignada ? "lucide:check-circle-2" : "lucide:users"} className="text-sm" />
+                        <span>{estaAsignada ? 'Asignada' : 'Asignar'}</span>
+                    </button>
+                )
+            }
         },
         { header: 'RQ', accessorKey: 'rq' },
         { header: 'OP', accessorKey: 'op' },
@@ -73,11 +80,23 @@ export default function OrdenesCortadasPage() {
         { header: 'Cantidad', accessorKey: 'cantidad' },
         {
             header: 'Estatus',
-            accessorKey: (row: any) => (
-                <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 border border-emerald-200/60 rounded-full text-xs font-semibold">
-                    {row.estatus}
-                </span>
-            )
+            accessorKey: (row: any) => {
+                const estaAsignada = row.estatus?.toLowerCase() === 'asignado';
+
+                if (estaAsignada) {
+                    return (
+                        <span className="px-2.5 py-1 bg-blue-50 text-blue-600 border border-blue-200/60 rounded-full text-xs font-semibold">
+                            asignado
+                        </span>
+                    )
+                }
+
+                return (
+                    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 border border-emerald-200/60 rounded-full text-xs font-semibold">
+                        {row.estatus || 'cortada'}
+                    </span>
+                )
+            }
         },
         {
             header: 'Inicio de Corte',

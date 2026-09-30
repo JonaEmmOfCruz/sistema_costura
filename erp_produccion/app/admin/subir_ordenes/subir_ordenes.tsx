@@ -8,23 +8,16 @@ export default function SubirOrdenesPage() {
     const [file, setFile] = useState<File | null>(null)
     const [loading, setLoading] = useState(false)
     const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-    
-    // Órdenes para la tabla principal
-    const [ordenes, setOrdenes] = useState<any[]>([])
+    const [ordenes, setOrdenes] = useState([])
 
     // Estados para el Modal y las 3 tablas de Costura
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [activeTab, setActiveTab] = useState<'asignaciones' | 'cortes' | 'tiempos'>('asignaciones')
     
-    const [asignaciones, setAsignaciones] = useState<any[]>([])
-    const [cortes, setCortes] = useState<any[]>([])
-    const [tiempos, setTiempos] = useState<any[]>([])
+    const [asignaciones, setAsignaciones] = useState([])
+    const [cortes, setCortes] = useState([])
+    const [tiempos, setTiempos] = useState([])
     const [loadingModalData, setLoadingModalData] = useState(false)
-
-    // Estados de filtros de FECHA EXCLUSIVOS por pestaña ({ field: string, date: string } | null)
-    const [dateFilterAsignaciones, setDateFilterAsignaciones] = useState<{ field: string; date: string } | null>(null)
-    const [dateFilterCortes, setDateFilterCortes] = useState<{ field: string; date: string } | null>(null)
-    const [dateFilterTiempos, setDateFilterTiempos] = useState<{ field: string; date: string } | null>(null)
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -35,7 +28,7 @@ export default function SubirOrdenesPage() {
 
     const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault()
-        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        if(e.dataTransfer.files && e.dataTransfer.files[0]) {
             setFile(e.dataTransfer.files[0])
             setStatus(null)
         }
@@ -66,7 +59,6 @@ export default function SubirOrdenesPage() {
             if (res.ok && data.success) {
                 setStatus({ type: 'success', message: data.message })
                 setFile(null)
-                cargarOrdenesPrincipales()
             } else {
                 setStatus({ type: 'error', message: data.message || 'Error al subir el archivo' })
             }
@@ -77,27 +69,17 @@ export default function SubirOrdenesPage() {
         }
     }
 
-    // Cargar las órdenes principales
-    const cargarOrdenesPrincipales = async () => {
-        setLoading(true)
-        try {
-            const res = await fetch('/api/admin_costura/ordenes')
-            const data = await res.json()
-            if (data.success) {
-                setOrdenes(data.ordenes)
-            }
-        } catch (error) {
-            console.error("Error al cargar órdenes:", error)
-        } finally {
-            setLoading(false)
-        }
-    }
-
     useEffect(() => {
-        cargarOrdenesPrincipales()
+        setLoading(true)
+        fetch('/api/ordenes')
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) setOrdenes(data.ordenes)
+                setLoading(false)
+            })
     }, [])
 
-    // Helpers para datos y formato de fecha (dd/mm/aa hh:mm:ss)
+    // Helpers para datos e interpretación de nulos/fechas
     const renderNullSafe = (value: any) => {
         if (value === null || value === undefined || value === '') return '-'
         return value
@@ -106,40 +88,10 @@ export default function SubirOrdenesPage() {
     const formatDateSafe = (dateValue: any) => {
         if (!dateValue) return '-'
         const date = new Date(dateValue)
-        if (isNaN(date.getTime())) return '-'
-
-        const pad = (n: number) => String(n).padStart(2, '0')
-
-        const day = pad(date.getDate())
-        const month = pad(date.getMonth() + 1)
-        const year = String(date.getFullYear()).slice(-2)
-
-        const hours = pad(date.getHours())
-        const minutes = pad(date.getMinutes())
-        const seconds = pad(date.getSeconds())
-
-        return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`
+        return isNaN(date.getTime()) ? '-' : date.toLocaleDateString() // Usamos toLocaleDateString() para mostrar solo la fecha limpia
     }
 
-    // Función para formatear fechas a YYYY-MM-DD para comparación con el input date
-    const getDateString = (dateValue: any) => {
-        if (!dateValue) return ''
-        const date = new Date(dateValue)
-        if (isNaN(date.getTime())) return ''
-        const pad = (n: number) => String(n).padStart(2, '0')
-        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-    }
-
-    // Columnas de la tabla principal
-    const columns = [
-        { header: 'RQ', accessorKey: (row: any) => renderNullSafe(row.rq) },
-        { header: 'OP', accessorKey: (row: any) => renderNullSafe(row.op) },
-        { header: 'PRODUCTO', accessorKey: (row: any) => renderNullSafe(row.producto) },
-        { header: 'NOMBRE', accessorKey: (row: any) => renderNullSafe(row.nombre) },
-        { header: 'CANTIDAD', accessorKey: (row: any) => renderNullSafe(row.cantidad) },
-    ]
-
-    // Cargar los datos del Modal
+    // Cargar los datos de las tres tablas al abrir el modal
     const handleOpenModal = () => {
         setIsModalOpen(true)
         setLoadingModalData(true)
@@ -158,60 +110,83 @@ export default function SubirOrdenesPage() {
         .finally(() => setLoadingModalData(false))
     }
 
-    // Componente reutilizable para Renderizar el Encabezado con Filtro de Fecha
-    const DateHeader = ({ title, fieldKey, currentFilter, setFilter }: { 
-        title: string, 
-        fieldKey: string, 
-        currentFilter: { field: string; date: string } | null, 
-        setFilter: (val: { field: string; date: string } | null) => void 
-    }) => {
-        const isActive = currentFilter?.field === fieldKey
-        const activeDate = isActive ? currentFilter.date : ''
+    const columns = [
+        {header: 'RQ', accessorKey: (row: any) => renderNullSafe(row.rq)},
+        {header: 'OP', accessorKey: (row: any) => renderNullSafe(row.op)},
+        {header: 'Producto', accessorKey: (row: any) => renderNullSafe(row.producto)},
+        {header: 'Nombre', accessorKey: (row: any) => renderNullSafe(row.nombre)},
+        {header: 'Observaciones', accessorKey: (row: any) => renderNullSafe(row.observaciones)},
+        {header: 'Cantidad', accessorKey: (row: any) => renderNullSafe(row.cantidad)},
+        {header: 'Cliente', accessorKey: (row: any) => renderNullSafe(row.cliente)},
+        {
+            header: 'Prioridad', 
+            accessorKey: (row: any) =>{ 
+                const prioridad = row.prioridad || 'Normal'
 
-        return (
-            <div className="flex items-center gap-1.5 justify-between select-none">
-                <span className="uppercase text-xs font-bold">{title}</span>
-                <div className="relative flex items-center">
-                    <button 
-                        type="button" 
-                        className={`p-1 rounded-md transition-colors hover:bg-gray-200 ${isActive ? 'text-blue-600 font-bold bg-blue-50' : 'text-gray-400'}`}
-                        title={`Filtrar por ${title}`}
-                    >
-                        <Icon icon="lucide:calendar" className="text-sm" />
-                    </button>
-                    {/* Input date transparente superpuesto al icono para activar el selector nativo del navegador */}
-                    <input
-                        type="date"
-                        value={activeDate}
-                        onChange={(e) => {
-                            if (e.target.value) {
-                                // Al seleccionar una nueva fecha se desactiva y limpia el filtro anterior
-                                setFilter({ field: fieldKey, date: e.target.value })
-                            } else {
-                                setFilter(null)
-                            }
-                        }}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    />
-                    {isActive && (
-                        <button
-                            type="button"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setFilter(null)
-                            }}
-                            className="p-0.5 text-gray-400 hover:text-red-500 rounded-full transition-colors"
-                            title="Limpiar filtro de fecha"
-                        >
-                            <Icon icon="lucide:x" className="text-xs" />
-                        </button>
-                    )}
-                </div>
-            </div>
-        )
-    }
+                let estilos = 'bg-gray-50 text-gray-600'
 
-    // Columnas para el Modal con los DateHeader integrados
+                switch (prioridad) {
+                    case 'Urgente':
+                        estilos = 'bg-orange-50 text-orange-600 border border-orange-100'
+                        break;
+                    case 'Prioridad 1':
+                        estilos = 'bg-lime-50 text-lime-600 border border-lime-100'
+                        break;
+                    case 'Prioridad 2':
+                        estilos = 'bg-sky-50 text-sky-600 border border-sky-100'
+                        break;
+                    case 'Prioridad 3':
+                        estilos = 'bg-amber-50 text-amber-600 border border-amber-100'
+                        break;
+                }
+
+                return (
+                    <span className={`px-1.5 py-1 rounded-full text-xs font-medium ${estilos}`}>
+                        {prioridad}
+                    </span>
+                )
+            }
+        },
+        {
+            header: 'Orden', 
+            accessorKey: (row: any) =>{ 
+                const ordn = row.orden || 'Normal'
+
+                let estilos = 'bg-gray-50 text-gray-600'
+
+                switch (ordn) {
+                    case 'D':
+                        estilos = 'bg-orange-50 text-orange-600 border border-orange-100'
+                        break;
+                    case 'A':
+                        estilos = 'bg-lime-50 text-lime-600 border border-lime-100'
+                        break;
+                    case 'B':
+                        estilos = 'bg-sky-50 text-sky-600 border border-sky-100'
+                        break;
+                    case 'C':
+                        estilos = 'bg-amber-50 text-amber-600 border border-amber-100'
+                        break;
+                }
+
+                return (
+                    <span className={`px-1.5 py-1 rounded-full text-xs font-medium ${estilos}`}>
+                        {ordn}
+                    </span>
+                )
+            }
+        },
+        {
+            header: 'Vigente Desde', 
+            accessorKey: (row: any) => row.vigente_desde ? new Date(row.vigente_desde).toLocaleDateString() : '-'
+        },
+        {
+            header: 'Fecha de entrega', 
+            accessorKey: (row: any) => row.fecha_de_entrega ? new Date(row.fecha_de_entrega).toLocaleDateString() : '-'
+        },
+    ]
+
+    // Columnas para Asignaciones
     const asignacionesColumns = [
         { header: 'RQ', accessorKey: (row: any) => renderNullSafe(row.rq) },
         { header: 'OP', accessorKey: (row: any) => renderNullSafe(row.op) },
@@ -219,32 +194,22 @@ export default function SubirOrdenesPage() {
         { header: 'Nombre', accessorKey: (row: any) => renderNullSafe(row.nombre) },
         { header: 'Cant. Asignada', accessorKey: (row: any) => renderNullSafe(row.cantidad_asignada) },
         { header: 'Operador', accessorKey: (row: any) => renderNullSafe(row.nombre_operador) },
-        { 
-            header: <DateHeader title="Asignado" fieldKey="creado_en" currentFilter={dateFilterAsignaciones} setFilter={setDateFilterAsignaciones} />, 
-            accessorKey: (row: any) => formatDateSafe(row.creado_en) 
-        },
+        { header: 'Asignado', accessorKey: (row: any) => renderNullSafe(row.creado_en) },
     ]
 
+    // Columnas para Cortes
     const cortesColumns = [
         { header: 'RQ', accessorKey: (row: any) => renderNullSafe(row.rq) },
         { header: 'OP', accessorKey: (row: any) => renderNullSafe(row.op) },
         { header: 'Producto', accessorKey: (row: any) => renderNullSafe(row.producto) },
         { header: 'Nombre', accessorKey: (row: any) => renderNullSafe(row.nombre) },
         { header: 'Cantidad', accessorKey: (row: any) => renderNullSafe(row.cantidad) },
-        { 
-            header: <DateHeader title="Inicio" fieldKey="fecha_inicio" currentFilter={dateFilterCortes} setFilter={setDateFilterCortes} />, 
-            accessorKey: (row: any) => formatDateSafe(row.fecha_inicio) 
-        },
-        { 
-            header: <DateHeader title="Termino" fieldKey="fecha_fin" currentFilter={dateFilterCortes} setFilter={setDateFilterCortes} />, 
-            accessorKey: (row: any) => formatDateSafe(row.fecha_fin) 
-        },
-        { 
-            header: <DateHeader title="Asignado" fieldKey="creado_en" currentFilter={dateFilterCortes} setFilter={setDateFilterCortes} />, 
-            accessorKey: (row: any) => formatDateSafe(row.creado_en) 
-        },
+        { header: 'Inicio', accessorKey: (row: any) => renderNullSafe(row.fecha_inicio) },
+        { header: 'Termino', accessorKey: (row: any) => renderNullSafe(row.fecha_fin) },
+        { header: 'Asignado', accessorKey: (row: any) => renderNullSafe(row.creado_en) },
     ]
 
+    // Columnas para Tiempos (operador_tiempos_costura)
     const tiemposColumns = [
         { header: 'RQ', accessorKey: (row: any) => renderNullSafe(row.rq) },
         { header: 'OP', accessorKey: (row: any) => renderNullSafe(row.op) },
@@ -252,34 +217,10 @@ export default function SubirOrdenesPage() {
         { header: 'Nombre', accessorKey: (row: any) => renderNullSafe(row.nombre) },
         { header: 'Cant. Asignada', accessorKey: (row: any) => renderNullSafe(row.cantidad_asignada) },
         { header: 'Operador', accessorKey: (row: any) => renderNullSafe(row.nombre_operador) },
-        { 
-            header: <DateHeader title="Fecha Inicio" fieldKey="fecha_inicio" currentFilter={dateFilterTiempos} setFilter={setDateFilterTiempos} />, 
-            accessorKey: (row: any) => formatDateSafe(row.fecha_inicio) 
-        },
-        { 
-            header: <DateHeader title="Fecha Fin" fieldKey="fecha_fin" currentFilter={dateFilterTiempos} setFilter={setDateFilterTiempos} />, 
-            accessorKey: (row: any) => formatDateSafe(row.fecha_fin) 
-        },
-        { 
-            header: <DateHeader title="Asignado" fieldKey="creado_en" currentFilter={dateFilterTiempos} setFilter={setDateFilterTiempos} />, 
-            accessorKey: (row: any) => formatDateSafe(row.creado_en) 
-        },
+        { header: 'Fecha Inicio', accessorKey: (row: any) => formatDateSafe(row.fecha_inicio) },
+        { header: 'Fecha Fin', accessorKey: (row: any) => formatDateSafe(row.fecha_fin) },
+        { header: 'Asignado', accessorKey: (row: any) => formatDateSafe(row.creado_en) },
     ]
-
-    // Función de filtrado por columna de fecha
-    const filterData = (items: any[], dateFilter?: { field: string; date: string } | null) => {
-        let result = items
-
-        // Aplicar filtro de fecha específico de columna activa
-        if (dateFilter && dateFilter.field && dateFilter.date) {
-            result = result.filter(item => {
-                const itemDate = getDateString(item[dateFilter.field])
-                return itemDate === dateFilter.date
-            })
-        }
-
-        return result
-    }
 
     if (loading) return <div className="text-center py-10 text-gray-400 text-sm">Cargando órdenes...</div>
 
@@ -354,12 +295,11 @@ export default function SubirOrdenesPage() {
                 </button>
             </form>
 
-            {/* Tabla Principal */}
-            <div className="space-y-3">
+            <div>
                 <ReusableTable data={ordenes} columns={columns} searchField='op' searchPlaceholder="Buscar por op..."/>
             </div>
 
-            {/* Modal con 3 pestañas */}
+            {/* Modal con 3 pestañas: Asignaciones, Cortes y Tiempos */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
@@ -392,7 +332,7 @@ export default function SubirOrdenesPage() {
                                         : 'border-transparent text-gray-400 hover:text-gray-600'
                                 }`}
                             >
-                                Asignaciones de costura ({filterData(asignaciones, dateFilterAsignaciones).length})
+                                Asignaciones de costura ({asignaciones.length})
                             </button>
                             <button
                                 onClick={() => setActiveTab('cortes')}
@@ -402,7 +342,7 @@ export default function SubirOrdenesPage() {
                                         : 'border-transparent text-gray-400 hover:text-gray-600'
                                 }`}
                             >
-                                Estatus de cortes ({filterData(cortes, dateFilterCortes).length})
+                                Estatus de cortes ({cortes.length})
                             </button>
                             <button
                                 onClick={() => setActiveTab('tiempos')}
@@ -412,7 +352,7 @@ export default function SubirOrdenesPage() {
                                         : 'border-transparent text-gray-400 hover:text-gray-600'
                                 }`}
                             >
-                                Asignaciones de operadores ({filterData(tiempos, dateFilterTiempos).length})
+                                Asignaciones de operadores ({tiempos.length})
                             </button>
                         </div>
 
@@ -427,7 +367,7 @@ export default function SubirOrdenesPage() {
                                 <>
                                     {activeTab === 'asignaciones' && (
                                         <ReusableTable
-                                            data={filterData(asignaciones, dateFilterAsignaciones)}
+                                            data={asignaciones}
                                             columns={asignacionesColumns}
                                             searchField="op"
                                             searchPlaceholder="Buscar asignación por OP..."
@@ -436,7 +376,7 @@ export default function SubirOrdenesPage() {
 
                                     {activeTab === 'cortes' && (
                                         <ReusableTable
-                                            data={filterData(cortes, dateFilterCortes)}
+                                            data={cortes}
                                             columns={cortesColumns}
                                             searchField="op"
                                             searchPlaceholder="Buscar corte por OP..."
@@ -445,7 +385,7 @@ export default function SubirOrdenesPage() {
 
                                     {activeTab === 'tiempos' && (
                                         <ReusableTable
-                                            data={filterData(tiempos, dateFilterTiempos)}
+                                            data={tiempos}
                                             columns={tiemposColumns}
                                             searchField="op"
                                             searchPlaceholder="Buscar tiempo por OP..."

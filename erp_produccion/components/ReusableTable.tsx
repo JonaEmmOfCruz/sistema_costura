@@ -4,7 +4,7 @@ import { useState, useMemo } from "react"
 import { Icon } from "@iconify/react"
 
 interface Column<T> {
-    header: string;
+    header: React.ReactNode; // <-- Modificado de 'string' a 'React.ReactNode' para aceptar JSX
     accessorKey: keyof T | ((row: T) => React.ReactNode);
     className?: string;
 }
