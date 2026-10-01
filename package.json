@@ -1,0 +1,5 @@
+{
+	"dependencies": {
+		"@dotlottie/react-player": "^1.6.19"
+	}
+}

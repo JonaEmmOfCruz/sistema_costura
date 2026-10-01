@@ -23,6 +23,12 @@ export default function SubirTiemposProductosPage() {
     const [nombreSeleccionado, setNombreSeleccionado] = useState('')
     const [idEliminar, setIdEliminar] = useState('')
 
+    // Estado global de filtros mediante checkboxes por campo: { [key]: string[] }
+    const [columnFilters, setColumnFilters] = useState<{ [key: string]: string[] }>({})
+    
+    // Estado para controlar qué modal de filtro está abierto actualmente
+    const [activeFilterField, setActiveFilterField] = useState<string | null>(null)
+
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             setFile(e.target.files[0])
@@ -138,9 +144,140 @@ export default function SubirTiemposProductosPage() {
     // Obtener lista única de nombres para el select de modificación masiva
     const nombresUnicos = Array.from(new Set(productos.map(p => p.nombre))).filter(Boolean)
 
+    // Lógica para alternar selecciones de checkbox en el filtro
+    const toggleFilterOption = (fieldKey: string, optionValue: string) => {
+        setColumnFilters(prev => {
+            const currentSelected = prev[fieldKey] || []
+            let newSelected: string[] = []
+
+            if (currentSelected.includes(optionValue)) {
+                newSelected = currentSelected.filter(item => item !== optionValue)
+            } else {
+                newSelected = [...currentSelected, optionValue]
+            }
+
+            if (newSelected.length === 0) {
+                const updated = { ...prev }
+                delete updated[fieldKey]
+                return updated
+            }
+
+            return { ...prev, [fieldKey]: newSelected }
+        })
+    }
+
+    // Limpiar filtro específico
+    const clearFilter = (fieldKey: string) => {
+        setColumnFilters(prev => {
+            const updated = { ...prev }
+            delete updated[fieldKey]
+            return updated
+        })
+    }
+
+    // Componente para el Encabezado con Icono y Modal desplegable de Checkboxes
+    const FilterHeaderModal = ({ title, fieldKey }: { title: string, fieldKey: string }) => {
+        const isModalOpen = activeFilterField === fieldKey
+        const selectedOptions = columnFilters[fieldKey] || []
+        const isFiltered = selectedOptions.length > 0
+
+        // Extraer valores únicos disponibles para el campo
+        const uniqueValues = Array.from(
+            new Set(productos.map(item => String(item[fieldKey] ?? '-')))
+        ).sort()
+
+        return (
+            <div className="relative flex items-center justify-between gap-1.5 select-none">
+                <span className="uppercase text-xs font-bold">{title}</span>
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        setActiveFilterField(isModalOpen ? null : fieldKey)
+                    }}
+                    className={`p-1 rounded-md transition-colors ${
+                        isFiltered 
+                            ? 'bg-rose-100 text-rose-600 font-bold' 
+                            : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                    }`}
+                    title={`Filtrar por ${title}`}
+                >
+                    <Icon icon="lucide:filter" className="text-sm" />
+                </button>
+
+                {/* Modal Desplegable por Checkbox */}
+                {isModalOpen && (
+                    <>
+                        {/* Overlay invisible para cerrar al hacer clic fuera */}
+                        <div 
+                            className="fixed inset-0 z-40" 
+                            onClick={() => setActiveFilterField(null)} 
+                        />
+                        
+                        <div 
+                            className="absolute top-full left-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-gray-200 z-50 p-4 text-left font-normal normal-case"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-100">
+                                <span className="text-xs font-bold text-gray-700">Filtrar por {title}</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveFilterField(null)}
+                                    className="p-1 text-gray-400 hover:text-gray-600 rounded-lg"
+                                >
+                                    <Icon icon="lucide:x" className="text-sm" />
+                                </button>
+                            </div>
+
+                            {/* Opciones en lista fija sin scroll interno */}
+                            <div className="max-h-56 overflow-y-auto space-y-1 pr-1 text-xs">
+                                {uniqueValues.map((val) => {
+                                    const checked = selectedOptions.includes(val)
+                                    return (
+                                        <div
+                                            key={`${fieldKey}-${val}`}
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                toggleFilterOption(fieldKey, val)
+                                            }}
+                                            className="flex items-center gap-2 p-1.5 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors text-slate-700 select-none"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                readOnly
+                                                className="rounded border-gray-300 text-rose-600 focus:ring-0 w-3.5 h-3.5 pointer-events-none"
+                                            />
+                                            <span className="truncate">{val}</span>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+
+                            {/* Acciones del Modal */}
+                            {isFiltered && (
+                                <div className="pt-2 mt-2 border-t border-gray-100 flex justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={() => clearFilter(fieldKey)}
+                                        className="text-xs text-rose-600 font-medium hover:underline flex items-center gap-1"
+                                    >
+                                        <Icon icon="lucide:rotate-ccw" className="text-xs" />
+                                        Limpiar filtro
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        )
+    }
+
+    // Definición de columnas (Sin columna ID)
     const columns = [
         {
-            header: 'Acciones',
+            header: 'ACCIONES',
             accessorKey: (row: any) => (
                 <button
                     onClick={() => {
@@ -156,14 +293,41 @@ export default function SubirTiemposProductosPage() {
                 </button>
             )
         },
-        { header: 'ID', accessorKey: 'id' },
-        { header: 'Modelo', accessorKey: 'modelo' },
-        { header: 'Nombre', accessorKey: 'nombre' },
-        { header: 'Código', accessorKey: 'codigo' },
-        { header: 'Producto', accessorKey: 'nombre_secundario' },
-        { header: 'Costura', accessorKey: 'costura' },
-        { header: 'Tiempo', accessorKey: 'tiempo' }
+        {
+            header: <FilterHeaderModal title="Modelo" fieldKey="modelo" />,
+            accessorKey: 'modelo'
+        },
+        {
+            header: <FilterHeaderModal title="Nombre" fieldKey="nombre" />,
+            accessorKey: 'nombre'
+        },
+        {
+            header: <FilterHeaderModal title="Código" fieldKey="codigo" />,
+            accessorKey: 'codigo'
+        },
+        {
+            header: <FilterHeaderModal title="Producto" fieldKey="nombre_secundario" />,
+            accessorKey: 'nombre_secundario'
+        },
+        {
+            header: <FilterHeaderModal title="Costura" fieldKey="costura" />,
+            accessorKey: 'costura'
+        },
+        {
+            header: <FilterHeaderModal title="Tiempo" fieldKey="tiempo" />,
+            accessorKey: 'tiempo'
+        }
     ]
+
+    // Aplicar filtrado por checkboxes
+    const productosFiltrados = productos.filter(row => {
+        return Object.keys(columnFilters).every(fieldKey => {
+            const allowedValues = columnFilters[fieldKey]
+            if (!allowedValues || allowedValues.length === 0) return true
+            const rowValue = String(row[fieldKey] ?? '-')
+            return allowedValues.includes(rowValue)
+        })
+    })
 
     return (
         <div className="mx-auto space-y-8 p-6">
@@ -175,7 +339,7 @@ export default function SubirTiemposProductosPage() {
             </div>
 
             {/* SECCIÓN 1: SUBIR EXCEL */}
-            <div className=" p-6 rounded-3xl  space-y-6">
+            <div className=" p-6 rounded-3xl space-y-6">
                 <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                     <Icon icon="lucide:file-spreadsheet" className="text-slate-600" />
                     Carga Masiva por Excel
@@ -362,7 +526,7 @@ export default function SubirTiemposProductosPage() {
             {/* SECCIÓN 3: TABLA DE DATOS */}
             <div>
                 <ReusableTable
-                    data={productos}
+                    data={productosFiltrados}
                     columns={columns}
                     searchField='nombre'
                     searchPlaceholder="Buscar por nombre..."
