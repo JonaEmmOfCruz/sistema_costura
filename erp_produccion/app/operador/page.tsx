@@ -9,8 +9,16 @@ export default function OperadorPage() {
     const [mostrarAlerta, setMostrarAlerta] = useState(false)
     const [segundos, setSegundos] = useState(0)
     const [costuraActiva, setCosturaActiva] = useState(false)
+    const [loadingTerminar, setLoadingTerminar] = useState(false)
 
-    // 1. Primero obtenemos la sesión del usuario actual
+    // Estado para almacenar los datos del manual encontrado
+    const [manual, setManual] = useState<{
+        ruta: string
+        tipo: string
+        nombre: string
+    } | null>(null)
+
+    // 1. Obtenemos la sesión del usuario actual
     useEffect(() => {
         const obtenerUsuario = async () => {
             try {
@@ -26,12 +34,45 @@ export default function OperadorPage() {
         obtenerUsuario()
     }, [])
 
-    // 2. Una vez que tenemos al usuario (específicamente su ID), buscamos sus asignaciones
+    // 2. Buscamos las asignaciones cuando tenemos el id del operador
     useEffect(() => {
         if (user && user.id) {
             cargarAsignacionPendiente(user.id)
         }
     }, [user])
+
+    // 3. Evaluar el producto asignado (extraer su 2º string) para buscar el manual
+    useEffect(() => {
+        const codigoProducto = asignacion?.producto || asignacion?.nombre
+
+        if (!codigoProducto) {
+            setManual(null)
+            return
+        }
+
+        const buscarManualPorProducto = async () => {
+            try {
+                const res = await fetch(`/api/manuales?codigo=${encodeURIComponent(codigoProducto)}`)
+                const data = await res.json()
+
+                if (data.success && data.manuales && data.manuales.length > 0) {
+                    const manualEncontrado = data.manuales[0]
+                    setManual({
+                        ruta: manualEncontrado.ruta,
+                        tipo: manualEncontrado.tipo,
+                        nombre: manualEncontrado.nombre_original
+                    })
+                } else {
+                    setManual(null)
+                }
+            } catch (error) {
+                console.error("Error al buscar el manual para el producto:", error)
+                setManual(null)
+            }
+        }
+
+        buscarManualPorProducto()
+    }, [asignacion?.producto, asignacion?.nombre])
 
     const cargarAsignacionPendiente = async (idOperador: number) => {
         try {
@@ -42,15 +83,14 @@ export default function OperadorPage() {
                 const nuevaAsignacion = data.asignaciones[0]
                 setAsignacion(nuevaAsignacion)
                 
-                // Verificamos si ya cuenta con un inicio guardado localmente
                 const inicioGuardado = localStorage.getItem(`costura_inicio_${nuevaAsignacion.id}`)
                 if (inicioGuardado) {
                     const transcurrido = Math.floor((Date.now() - Number(inicioGuardado)) / 1000)
                     setSegundos(transcurrido > 0 ? transcurrido : 0)
                     setCosturaActiva(true)
-                    setMostrarAlerta(false) // Ocultar alerta si ya estaba activa
+                    setMostrarAlerta(false)
                 } else {
-                    setMostrarAlerta(true) // Mostrar modal flotante si es totalmente nueva
+                    setMostrarAlerta(true)
                 }
             } else {
                 setAsignacion(null)
@@ -88,26 +128,49 @@ export default function OperadorPage() {
         }
     }
 
-    const finalizarCostura = async () => {
+    // Función para Almacenar/Terminar la orden
+    const terminarCostura = async () => {
+        if (!asignacion) return
+        setLoadingTerminar(true)
+
         try {
-            const res = await fetch('/api/operador/costura/finalizar', {
+            const fechaFinActual = new Date().toISOString()
+
+            // Intenta guardar enviando a tu endpoint principal o al de operador
+            const res = await fetch('/api/costura-tiempos/terminar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ asignacion_id: asignacion.id, tiempo_segundos: segundos })
+                body: JSON.stringify({
+                    id_asignacion: asignacion.id,
+                    asignacion_id: asignacion.id,
+                    fecha_fin: fechaFinActual,
+                    tiempo_segundos: segundos,
+                    tipo: 'operador'
+                })
             })
+
             const data = await res.json()
-            if (data.success) {
+
+            if (res.ok && data.success) {
+                // Limpia el contador local
                 localStorage.removeItem(`costura_inicio_${asignacion.id}`)
                 setCosturaActiva(false)
                 setSegundos(0)
                 setAsignacion(null)
-                // Cargar la siguiente orden si existe
+                setManual(null)
+
+                // Carga la siguiente asignación pendiente si la hay
                 if (user && user.id) {
                     cargarAsignacionPendiente(user.id)
                 }
+            } else {
+                alert(data.message || 'Ocurrió un error al intentar terminar la orden.')
             }
         } catch (error) {
-            console.error("Error al finalizar:", error)
+            console.error("Error al terminar la orden:", error)
+            alert('Error de conexión al terminar la orden.')
+        } finally {
+            setLoadingTerminar(false)
         }
     }
 
@@ -117,7 +180,6 @@ export default function OperadorPage() {
         return `${m}:${s}`
     }
 
-    // Pantalla de carga mientras verifica sesión o asignaciones
     if (!user) {
         return (
             <div className="flex flex-col items-center justify-center py-20 text-slate-400">
@@ -135,8 +197,11 @@ export default function OperadorPage() {
         )
     }
 
+    const textoProducto = asignacion?.producto || asignacion?.nombre || ''
+    const partesProducto = textoProducto.split('-')
+    const codigoSegundoString = partesProducto.length >= 2 ? partesProducto[1].trim() : textoProducto.trim()
+
     return (
-        /* Contenedor principal sin max-w ni centrado forzado, usando ancho completo (w-full) */
         <div className="w-full min-h-[calc(100vh-4rem)] flex flex-col box-border bg-slate-50 p-4 gap-4">
             {/* Modal de Nueva Asignación */}
             {mostrarAlerta && asignacion && (
@@ -153,7 +218,7 @@ export default function OperadorPage() {
                             <p className="font-medium text-slate-800 mb-3">{asignacion.op}</p>
                             
                             <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Producto</p>
-                            <p className="font-medium text-slate-800 mb-3">{asignacion.nombre}</p>
+                            <p className="font-medium text-slate-800 mb-3">{asignacion.producto || asignacion.nombre}</p>
                             
                             <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Cantidad Asignada</p>
                             <p className="font-medium text-blue-600 text-lg">{asignacion.cantidad_asignada} unidades</p>
@@ -171,7 +236,7 @@ export default function OperadorPage() {
 
             {!mostrarAlerta && asignacion && (
                 <>
-                    {/* FILA SUPERIOR: Panel de Información extendido a todo lo ancho (w-full) sin contenedores centrados */}
+                    {/* FILA SUPERIOR: Panel de Información */}
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col lg:flex-row items-stretch justify-between p-5 gap-4 w-full">
                         <div className="flex items-center gap-4">
                             <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
@@ -183,7 +248,7 @@ export default function OperadorPage() {
                                     <span className="text-xs text-slate-400 font-mono">OP: <strong className="text-slate-700">{asignacion.op}</strong></span>
                                     <span className="text-xs text-slate-400 font-mono">RQ: <strong className="text-slate-700">{asignacion.rq}</strong></span>
                                 </div>
-                                <h2 className="text-base font-bold text-slate-800">{asignacion.producto}</h2>
+                                <h2 className="text-base font-bold text-slate-800">{asignacion.producto || asignacion.nombre}</h2>
                                 <p className="text-xs text-slate-500">{asignacion.nombre}</p>
                             </div>
                         </div>
@@ -210,27 +275,32 @@ export default function OperadorPage() {
                                     </button>
                                 ) : (
                                     <button 
-                                        onClick={finalizarCostura}
-                                        className="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-semibold transition-all shadow-md flex items-center gap-2 text-sm"
+                                        onClick={terminarCostura}
+                                        disabled={loadingTerminar}
+                                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold transition-all shadow-md flex items-center gap-2 text-sm disabled:opacity-50"
                                     >
-                                        <Icon icon="lucide:check-circle-2" className="text-base" />
-                                        Finalizar
+                                        {loadingTerminar ? (
+                                            <Icon icon="lucide:loader-2" className="text-base animate-spin" />
+                                        ) : (
+                                            <Icon icon="lucide:check-circle-2" className="text-base" />
+                                        )}
+                                        <span>Terminar</span>
                                     </button>
                                 )}
                             </div>
                         </div>
                     </div>
 
-                    {/* FILA INFERIOR: Panel del Manual con ancho fluido completo (w-full) y visualización libre de restricciones internas */}
+                    {/* FILA INFERIOR: Visualización del Manual */}
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col w-full flex-1 min-h-[75vh]">
                         <div className="border-b border-slate-100 px-6 py-3.5 flex items-center justify-between shrink-0 w-full">
                             <h3 className="text-xs font-semibold text-slate-700 flex items-center gap-2">
                                 <Icon icon="lucide:file-text" className="text-blue-600 text-base" />
-                                Manual de Operación: <span className="text-slate-500 font-normal">{asignacion.manual_nombre || 'Sin nombre'}</span>
+                                Manual de Operación: <span className="text-slate-500 font-normal">{manual ? manual.nombre : 'Sin manual detectado'}</span>
                             </h3>
-                            {asignacion.manual_ruta && (
+                            {manual?.ruta && (
                                 <a 
-                                    href={asignacion.manual_ruta} 
+                                    href={manual.ruta} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-lg transition-colors border border-blue-100"
@@ -241,19 +311,19 @@ export default function OperadorPage() {
                         </div>
 
                         <div className="p-4 flex flex-col bg-slate-50/50 w-full flex-1">
-                            {asignacion.manual_ruta ? (
+                            {manual?.ruta ? (
                                 <div className="bg-white rounded-xl overflow-auto border border-slate-200 w-full flex-1 min-h-[70vh] flex flex-col relative shadow-inner">
-                                    {asignacion.manual_tipo?.includes('image') ? (
+                                    {manual.tipo?.includes('image') ? (
                                         <div className="w-full h-full flex items-center justify-center p-4">
                                             <img 
-                                                src={asignacion.manual_ruta} 
+                                                src={manual.ruta} 
                                                 alt="Manual de producción" 
                                                 className="w-full h-auto object-contain"
                                             />
                                         </div>
                                     ) : (
                                         <iframe 
-                                            src={`${asignacion.manual_ruta}#view=FitH`} 
+                                            src={`${manual.ruta}#view=FitH`} 
                                             className="w-full h-full min-h-[75vh] border-0"
                                             title="Manual PDF"
                                         />
@@ -262,8 +332,10 @@ export default function OperadorPage() {
                             ) : (
                                 <div className="w-full h-[50vh] flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-white p-6 text-center">
                                     <Icon icon="lucide:file-question" className="text-4xl mb-2 text-slate-300" />
-                                    <p className="text-sm font-medium text-slate-600">No hay manual vinculado</p>
-                                    <p className="text-xs text-slate-400 mt-1">Este producto no cuenta con un manual de operaciones registrado.</p>
+                                    <p className="text-sm font-medium text-slate-600">No hay manual vinculado para este producto</p>
+                                    <p className="text-xs text-slate-400 mt-1">
+                                        No se encontró un archivo que coincida con la clave <strong>"{codigoSegundoString}"</strong> del producto.
+                                    </p>
                                 </div>
                             )}
                         </div>

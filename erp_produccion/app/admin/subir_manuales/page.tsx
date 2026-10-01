@@ -29,6 +29,13 @@ export default function SubirManualesPage() {
         e.preventDefault()
     }
 
+    // Helper para visualizar cuál código será detectado antes de subir
+    const obtenerCodigoPrevio = (nombre: string) => {
+        const sinExt = nombre.substring(0, nombre.lastIndexOf('.')) || nombre
+        const partes = sinExt.split('-')
+        return partes.length > 1 && partes[0].length <= 3 ? partes[1].trim() : partes[0].trim()
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!file) return
@@ -50,7 +57,7 @@ export default function SubirManualesPage() {
             if (res.ok && data.success) {
                 setStatus({ type: 'success', message: data.message })
                 setFile(null)
-                cargarManuales() // Recargar la tabla
+                cargarManuales()
             } else {
                 setStatus({ type: 'error', message: data.message || 'Error al subir el archivo' })
             }
@@ -77,14 +84,22 @@ export default function SubirManualesPage() {
     }, [])
 
     const columns = [
-        { header: 'Nombre del Archivo', accessorKey: 'nombre_original' },
+        { header: 'Nombre de Archivo', accessorKey: 'nombre_original' },
+        { 
+            header: 'Código Relación (2º String)', 
+            accessorKey: (row: any) => (
+                <span className="font-mono bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md text-xs font-semibold border border-blue-200/70">
+                    {row.codigo_relacion || '-'}
+                </span>
+            )
+        },
         { header: 'Tipo', accessorKey: 'tipo' },
         { 
             header: 'Tamaño', 
             accessorKey: (row: any) => `${(row.tamanio / 1024).toFixed(2)} KB` 
         },
         { 
-            header: 'Fecha de Subida', 
+            header: 'Fecha Subida', 
             accessorKey: (row: any) => row.fecha_subida ? new Date(row.fecha_subida).toLocaleString() : '-' 
         },
         {
@@ -107,7 +122,7 @@ export default function SubirManualesPage() {
             <div className="pt-4">
                 <h1 className="text-2xl font-bold text-gray-800">Carga de Manuales de Producción</h1>
                 <p className="text-sm text-gray-500 mt-1">
-                    Sube manuales explicativos en formato PDF, PNG o JPG para el área de operaciones.
+                    Los archivos se vincularán automáticamente a las OPs que coincidan con su código de relación.
                 </p>
             </div>
 
@@ -128,7 +143,9 @@ export default function SubirManualesPage() {
                         {file ? (
                             <div>
                                 <p className="text-sm font-semibold text-gray-800">{file.name}</p>
-                                <p className="text-xs text-gray-400 mt-0.5">Archivo listo para cargar</p>
+                                <p className="text-xs text-emerald-600 font-medium mt-1">
+                                    Código a vincular detectado: <strong>{obtenerCodigoPrevio(file.name)}</strong>
+                                </p>
                             </div>
                         ) : (
                             <div>
@@ -138,7 +155,6 @@ export default function SubirManualesPage() {
                                 <p className="text-xs text-gray-400 mt-1">Formatos soportados: .pdf, .png, .jpg, .jpeg</p>
                             </div>
                         )}
-
                     </div>
                 </div>
 
@@ -169,7 +185,7 @@ export default function SubirManualesPage() {
             </form>
 
             <div>
-                <ReusableTable data={manuales} columns={columns} searchField='nombre_original' searchPlaceholder="Buscar por nombre de archivo..."/>
+                <ReusableTable data={manuales} columns={columns} searchField='codigo_relacion' searchPlaceholder="Buscar por código de relación..."/>
             </div>
         </div>
     )

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 
@@ -12,19 +12,19 @@ export default function SubirOrdenesPage() {
     // Órdenes para la tabla principal
     const [ordenes, setOrdenes] = useState<any[]>([])
 
-    // Estados para el Modal y las 3 tablas de Costura
+    // Estados para el Modal y las pestañas de Costura
     const [isModalOpen, setIsModalOpen] = useState(false)
-    const [activeTab, setActiveTab] = useState<'asignaciones' | 'cortes' | 'tiempos'>('asignaciones')
+    const [activeTab, setActiveTab] = useState<'asignaciones' | 'cortes' | 'terminadas'>('asignaciones')
     
     const [asignaciones, setAsignaciones] = useState<any[]>([])
     const [cortes, setCortes] = useState<any[]>([])
     const [tiempos, setTiempos] = useState<any[]>([])
     const [loadingModalData, setLoadingModalData] = useState(false)
 
-    // Estados de filtros de FECHA EXCLUSIVOS por pestaña ({ field: string, date: string } | null)
+    // Estados de filtros de FECHA EXCLUSIVOS por pestaña
     const [dateFilterAsignaciones, setDateFilterAsignaciones] = useState<{ field: string; date: string } | null>(null)
     const [dateFilterCortes, setDateFilterCortes] = useState<{ field: string; date: string } | null>(null)
-    const [dateFilterTiempos, setDateFilterTiempos] = useState<{ field: string; date: string } | null>(null)
+    const [dateFilterTerminados, setDateFilterTerminados] = useState<{ field: string; date: string } | null>(null)
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -97,7 +97,45 @@ export default function SubirOrdenesPage() {
         cargarOrdenesPrincipales()
     }, [])
 
-    // Helpers para datos y formato de fecha (dd/mm/aa hh:mm:ss)
+    // Función para recargar los datos de las pestañas del modal (silencioso para no parpadear)
+    const fetchModalData = useCallback(async (isInitialLoad = false) => {
+        if (isInitialLoad) setLoadingModalData(true)
+
+        try {
+            const [dataAsignaciones, dataCortes, dataTiempos] = await Promise.all([
+                fetch('/api/costura-asignaciones', { cache: 'no-store' }).then(res => res.json()),
+                fetch('/api/costura-cortes', { cache: 'no-store' }).then(res => res.json()),
+                fetch('/api/costura-tiempos', { cache: 'no-store' }).then(res => res.json())
+            ])
+
+            if (dataAsignaciones.success) setAsignaciones(dataAsignaciones.asignaciones)
+            if (dataCortes.success) setCortes(dataCortes.cortes)
+            if (dataTiempos.success) setTiempos(dataTiempos.tiempos)
+        } catch (err) {
+            console.error("Error al refrescar datos del modal:", err)
+        } finally {
+            if (isInitialLoad) setLoadingModalData(false)
+        }
+    }, [])
+
+    // Abrir modal y cargar datos iniciales
+    const handleOpenModal = () => {
+        setIsModalOpen(true)
+        fetchModalData(true)
+    }
+
+    // Polling en tiempo real: Actualiza los datos cada 3 segundos cuando el modal está abierto
+    useEffect(() => {
+        if (!isModalOpen) return
+
+        const interval = setInterval(() => {
+            fetchModalData(false)
+        }, 3000)
+
+        return () => clearInterval(interval)
+    }, [isModalOpen, fetchModalData])
+
+    // Helpers para renderizado y formateo de fechas y tiempos
     const renderNullSafe = (value: any) => {
         if (value === null || value === undefined || value === '') return '-'
         return value
@@ -121,7 +159,26 @@ export default function SubirOrdenesPage() {
         return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`
     }
 
-    // Función para formatear fechas a YYYY-MM-DD para comparación con el input date
+    const formatTiempoTranscurrido = (row: any) => {
+        let totalSegundos = Number(row.tiempo_segundos)
+
+        if (isNaN(totalSegundos) || totalSegundos <= 0) {
+            if (!row.fecha_inicio || !row.fecha_fin) return '-'
+            const inicio = new Date(row.fecha_inicio).getTime()
+            const fin = new Date(row.fecha_fin).getTime()
+            if (isNaN(inicio) || isNaN(fin) || fin < inicio) return '-'
+            totalSegundos = Math.floor((fin - inicio) / 1000)
+        }
+
+        const horas = Math.floor(totalSegundos / 3600)
+        const minutos = Math.floor((totalSegundos % 3600) / 60)
+        const segundos = totalSegundos % 60
+
+        if (horas > 0) return `${horas}h ${minutos}m ${segundos}s`
+        if (minutos > 0) return `${minutos}m ${segundos}s`
+        return `${segundos}s`
+    }
+
     const getDateString = (dateValue: any) => {
         if (!dateValue) return ''
         const date = new Date(dateValue)
@@ -130,7 +187,6 @@ export default function SubirOrdenesPage() {
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
     }
 
-    // Columnas de la tabla principal
     const columns = [
         { header: 'RQ', accessorKey: (row: any) => renderNullSafe(row.rq) },
         { header: 'OP', accessorKey: (row: any) => renderNullSafe(row.op) },
@@ -139,26 +195,6 @@ export default function SubirOrdenesPage() {
         { header: 'CANTIDAD', accessorKey: (row: any) => renderNullSafe(row.cantidad) },
     ]
 
-    // Cargar los datos del Modal
-    const handleOpenModal = () => {
-        setIsModalOpen(true)
-        setLoadingModalData(true)
-
-        Promise.all([
-            fetch('/api/costura-asignaciones').then(res => res.json()),
-            fetch('/api/costura-cortes').then(res => res.json()),
-            fetch('/api/costura-tiempos').then(res => res.json())
-        ])
-        .then(([dataAsignaciones, dataCortes, dataTiempos]) => {
-            if (dataAsignaciones.success) setAsignaciones(dataAsignaciones.asignaciones)
-            if (dataCortes.success) setCortes(dataCortes.cortes)
-            if (dataTiempos.success) setTiempos(dataTiempos.tiempos)
-        })
-        .catch(err => console.error("Error al cargar datos del modal:", err))
-        .finally(() => setLoadingModalData(false))
-    }
-
-    // Componente reutilizable para Renderizar el Encabezado con Filtro de Fecha
     const DateHeader = ({ title, fieldKey, currentFilter, setFilter }: { 
         title: string, 
         fieldKey: string, 
@@ -179,13 +215,11 @@ export default function SubirOrdenesPage() {
                     >
                         <Icon icon="lucide:calendar" className="text-sm" />
                     </button>
-                    {/* Input date transparente superpuesto al icono para activar el selector nativo del navegador */}
                     <input
                         type="date"
                         value={activeDate}
                         onChange={(e) => {
                             if (e.target.value) {
-                                // Al seleccionar una nueva fecha se desactiva y limpia el filtro anterior
                                 setFilter({ field: fieldKey, date: e.target.value })
                             } else {
                                 setFilter(null)
@@ -211,7 +245,6 @@ export default function SubirOrdenesPage() {
         )
     }
 
-    // Columnas para el Modal con los DateHeader integrados
     const asignacionesColumns = [
         { header: 'RQ', accessorKey: (row: any) => renderNullSafe(row.rq) },
         { header: 'OP', accessorKey: (row: any) => renderNullSafe(row.op) },
@@ -240,8 +273,12 @@ export default function SubirOrdenesPage() {
             accessorKey: (row: any) => formatDateSafe(row.fecha_fin) 
         },
         { 
-            header: <DateHeader title="Asignado" fieldKey="creado_en" currentFilter={dateFilterCortes} setFilter={setDateFilterCortes} />, 
-            accessorKey: (row: any) => formatDateSafe(row.creado_en) 
+            header: <span className="uppercase text-xs font-bold">Tiempo Transcurrido</span>, 
+            accessorKey: (row: any) => (
+                <span className="font-semibold text-slate-800">
+                    {formatTiempoTranscurrido(row)}
+                </span>
+            ) 
         },
     ]
 
@@ -253,24 +290,30 @@ export default function SubirOrdenesPage() {
         { header: 'Cant. Asignada', accessorKey: (row: any) => renderNullSafe(row.cantidad_asignada) },
         { header: 'Operador', accessorKey: (row: any) => renderNullSafe(row.nombre_operador) },
         { 
-            header: <DateHeader title="Fecha Inicio" fieldKey="fecha_inicio" currentFilter={dateFilterTiempos} setFilter={setDateFilterTiempos} />, 
+            header: <DateHeader title="Fecha Inicio" fieldKey="fecha_inicio" currentFilter={dateFilterTerminados} setFilter={setDateFilterTerminados} />, 
             accessorKey: (row: any) => formatDateSafe(row.fecha_inicio) 
         },
         { 
-            header: <DateHeader title="Fecha Fin" fieldKey="fecha_fin" currentFilter={dateFilterTiempos} setFilter={setDateFilterTiempos} />, 
+            header: <DateHeader title="Fecha Fin" fieldKey="fecha_fin" currentFilter={dateFilterTerminados} setFilter={setDateFilterTerminados} />, 
             accessorKey: (row: any) => formatDateSafe(row.fecha_fin) 
         },
         { 
-            header: <DateHeader title="Asignado" fieldKey="creado_en" currentFilter={dateFilterTiempos} setFilter={setDateFilterTiempos} />, 
-            accessorKey: (row: any) => formatDateSafe(row.creado_en) 
+            header: <span className="uppercase text-xs font-bold">Tiempo Transcurrido</span>, 
+            accessorKey: (row: any) => (
+                <span className="font-semibold text-slate-800">
+                    {formatTiempoTranscurrido(row)}
+                </span>
+            ) 
         },
     ]
 
-    // Función de filtrado por columna de fecha
-    const filterData = (items: any[], dateFilter?: { field: string; date: string } | null) => {
+    const filterData = (items: any[], dateFilter?: { field: string; date: string } | null, soloTerminados: boolean = false) => {
         let result = items
 
-        // Aplicar filtro de fecha específico de columna activa
+        if (soloTerminados) {
+            result = result.filter(item => item.fecha_fin !== null && item.fecha_fin !== undefined && item.fecha_fin !== '')
+        }
+
         if (dateFilter && dateFilter.field && dateFilter.date) {
             result = result.filter(item => {
                 const itemDate = getDateString(item[dateFilter.field])
@@ -354,12 +397,11 @@ export default function SubirOrdenesPage() {
                 </button>
             </form>
 
-            {/* Tabla Principal */}
             <div className="space-y-3">
                 <ReusableTable data={ordenes} columns={columns} searchField='op' searchPlaceholder="Buscar por op..."/>
             </div>
 
-            {/* Modal con 3 pestañas */}
+            {/* Modal */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
@@ -367,19 +409,32 @@ export default function SubirOrdenesPage() {
                         {/* Cabecera del Modal */}
                         <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-slate-50">
                             <div>
-                                <h2 className="text-lg font-bold text-gray-800">
-                                    Módulo de Costura
+                                <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                    <span>Módulo de Costura</span>
+                                    <span className="flex h-2 w-2 relative">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                                    </span>
                                 </h2>
                                 <p className="text-xs text-gray-500">
-                                    Consulta de registros de asignaciones, cortes y tiempos de operadores.
+                                    Consulta en tiempo real de asignaciones, cortes y órdenes terminadas.
                                 </p>
                             </div>
-                            <button
-                                onClick={() => setIsModalOpen(false)}
-                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 rounded-xl transition-colors"
-                            >
-                                <Icon icon="lucide:x" className="text-xl" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => fetchModalData(false)}
+                                    className="p-2 text-gray-500 hover:text-slate-800 hover:bg-gray-200/60 rounded-xl transition-colors"
+                                    title="Refrescar datos ahora"
+                                >
+                                    <Icon icon="lucide:refresh-cw" className="text-lg" />
+                                </button>
+                                <button
+                                    onClick={() => setIsModalOpen(false)}
+                                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200/60 rounded-xl transition-colors"
+                                >
+                                    <Icon icon="lucide:x" className="text-xl" />
+                                </button>
+                            </div>
                         </div>
 
                         {/* Pestañas (Tabs) */}
@@ -405,14 +460,14 @@ export default function SubirOrdenesPage() {
                                 Estatus de cortes ({filterData(cortes, dateFilterCortes).length})
                             </button>
                             <button
-                                onClick={() => setActiveTab('tiempos')}
+                                onClick={() => setActiveTab('terminadas')}
                                 className={`pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
-                                    activeTab === 'tiempos'
-                                        ? 'border-slate-800 text-slate-800'
+                                    activeTab === 'terminadas'
+                                        ? 'border-green-600 text-green-700 font-bold'
                                         : 'border-transparent text-gray-400 hover:text-gray-600'
                                 }`}
                             >
-                                Asignaciones de operadores ({filterData(tiempos, dateFilterTiempos).length})
+                                Órdenes Terminadas ({filterData(tiempos, dateFilterTerminados, true).length})
                             </button>
                         </div>
 
@@ -443,12 +498,12 @@ export default function SubirOrdenesPage() {
                                         />
                                     )}
 
-                                    {activeTab === 'tiempos' && (
+                                    {activeTab === 'terminadas' && (
                                         <ReusableTable
-                                            data={filterData(tiempos, dateFilterTiempos)}
+                                            data={filterData(tiempos, dateFilterTerminados, true)}
                                             columns={tiemposColumns}
                                             searchField="op"
-                                            searchPlaceholder="Buscar tiempo por OP..."
+                                            searchPlaceholder="Buscar orden terminada por OP..."
                                         />
                                     )}
                                 </>

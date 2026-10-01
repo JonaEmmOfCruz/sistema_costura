@@ -2,9 +2,6 @@ import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { RowDataPacket } from "mysql2";
 
-// Evita que Next.js guarde en caché las respuestas GET
-export const dynamic = 'force-dynamic';
-
 export async function GET() {
     try {
         const [rows] = await pool.query<RowDataPacket[]>(`
@@ -19,9 +16,13 @@ export async function GET() {
                 COALESCE(u.nombre, t.id_operador) AS nombre_operador,
                 t.fecha_inicio,
                 t.fecha_fin,
+                t.creado_en,
+                t.fecha_inicio,
+                t.fecha_fin,
                 t.creado_en
             FROM operador_tiempos_costura t
             LEFT JOIN usuarios u ON t.id_operador = u.id
+            LEFT JOIN ordenes_produccion o ON t.op = o.op
             ORDER BY t.id DESC
         `);
 

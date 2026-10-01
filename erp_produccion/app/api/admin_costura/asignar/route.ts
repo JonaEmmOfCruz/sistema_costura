@@ -30,9 +30,7 @@ export async function POST(request: Request) {
             const cantidadTotal = Number(orden.cantidad) || 0
             const realOrdenId = orden.orden_id || orden.id
 
-            // SOLUCIÓN 1: Validar que el operador no tenga asignaciones "pendientes"
-            // Nota: Asegúrate de que la tabla admin_costura_asignaciones tenga un campo 'estatus'.
-            // Si manejas el fin de la orden de otra forma (ej. borrando el registro), remueve la línea del AND a.estatus.
+            // Validar operadores disponibles que no tengan asignaciones pendientes
             const [operadoresRows]: any = await connection.query(`
                 SELECT u.id AS usuario_id, u.nombre 
                 FROM usuarios u
@@ -58,29 +56,40 @@ export async function POST(request: Request) {
             const totalOperadores = operadoresRows.length
             const cantidadBase = Math.floor(cantidadTotal / totalOperadores)
             let sobrante = cantidadTotal % totalOperadores
+            let operadoresAsignadosCount = 0
 
             for (let i = 0; i < totalOperadores; i++) {
                 const opRow = operadoresRows[i]
-                const asignada = cantidadBase + (i === 0 ? sobrante : 0)
+                
+                // Reparto equitativo paso a paso
+                let asignada = cantidadBase
+                if (sobrante > 0) {
+                    asignada += 1
+                    sobrante -= 1
+                }
 
-                await connection.query(
-                    `INSERT INTO admin_costura_asignaciones 
-                    (orden_id, rq, op, producto, nombre, cantidad_asignada, id_operador, nombre_operador, estatus) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'asignado')`,
-                    [
-                        realOrdenId, 
-                        orden.rq, 
-                        orden.op, 
-                        orden.producto, 
-                        orden.nombre, 
-                        asignada, 
-                        opRow.usuario_id, 
-                        opRow.nombre
-                    ]
-                )
+                // CONDICIÓN CLAVE: Solo insertamos los operadores que tengan cantidad asignada > 0
+                if (asignada > 0) {
+                    await connection.query(
+                        `INSERT INTO admin_costura_asignaciones 
+                        (orden_id, rq, op, producto, nombre, cantidad_asignada, id_operador, nombre_operador, estatus) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'asignado')`,
+                        [
+                            realOrdenId, 
+                            orden.rq, 
+                            orden.op, 
+                            orden.producto, 
+                            orden.nombre, 
+                            asignada, 
+                            opRow.usuario_id, 
+                            opRow.nombre
+                        ]
+                    )
+                    operadoresAsignadosCount++
+                }
             }
 
-            // SOLUCIÓN 2: Actualizar el estatus de la orden original a 'asignado'
+            // Actualizar el estatus de la orden original a 'asignado'
             await connection.query(
                 `UPDATE admin_costura_cortes SET estatus = 'asignado' WHERE id = ?`,
                 [orden.id]
@@ -89,9 +98,14 @@ export async function POST(request: Request) {
             await connection.commit()
             connection.release()
 
+            // Mensaje personalizado según la distribución final
+            const mensajeRespuesta = cantidadTotal < totalOperadores
+                ? `Orden asignada a ${operadoresAsignadosCount} operador (1 unidad cada uno). Los operadores restantes continúan libres.`
+                : `Asignación equitativa completada entre ${operadoresAsignadosCount} operadores libres.`
+
             return NextResponse.json({ 
                 success: true, 
-                message: `Asignación equitativa completada entre ${totalOperadores} operadores libres.` 
+                message: mensajeRespuesta
             })
         } catch (error) {
             await connection.rollback()

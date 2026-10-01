@@ -34,20 +34,25 @@ export default function OrdenesCortadasPage() {
         cargarOrdenesCortadas()
     }, [])
 
-    // Paso 1: Abrir el modal de confirmación
+    // Paso 1: Abrir el modal de confirmación adaptado al caso de cantidad = 1
     const handleAsignacionEquitativa = (orden: any) => {
+        const cantidadOp = Number(orden.cantidad) || 0;
+
+        const mensajeConfirmacion = cantidadOp === 1
+            ? `Esta OP cuenta únicamente con 1 unidad. Se le asignará solo a 1 operador libre y los demás seguirán disponibles. ¿Deseas continuar?`
+            : `¿Deseas asignar equitativamente la cantidad de esta OP (${cantidadOp}) entre los operadores disponibles?`;
+
         setModal({
             isOpen: true,
             type: 'confirm',
-            message: `¿Deseas asignar equitativamente la cantidad de esta OP (${orden.cantidad}) entre los operadores disponibles?`,
+            message: mensajeConfirmacion,
             onConfirm: () => ejecutarAsignacion(orden.id)
         })
     }
 
     // Paso 2: Ejecutar la API si el usuario confirma
     const ejecutarAsignacion = async (orden_id: string) => {
-        // Cerramos el modal temporalmente o mostramos uno de carga (aquí lo cerramos)
-        setModal({ ...modal, isOpen: false })
+        setModal(prev => ({ ...prev, isOpen: false }))
 
         try {
             const res = await fetch('/api/admin_costura/asignar', {
@@ -69,7 +74,7 @@ export default function OrdenesCortadasPage() {
         }
     }
 
-    const cerrarModal = () => setModal({ ...modal, isOpen: false })
+    const cerrarModal = () => setModal(prev => ({ ...prev, isOpen: false }))
 
     const columns = [
         {
