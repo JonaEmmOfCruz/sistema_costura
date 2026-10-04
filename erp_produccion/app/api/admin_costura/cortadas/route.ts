@@ -4,21 +4,25 @@ import { RowDataPacket } from "mysql2";
 
 export async function GET() {
     try {
-        // SOLUCIÓN 3: Sumar lo asignado para verificar si la orden ya se asignó completamente
         const [rows] = await pool.query<RowDataPacket[]>(`
             SELECT 
                 c.*,
+                COALESCE(a.total_asignado, 0) AS total_asignado, -- EXPORTAMOS EL NÚMERO AL FRONTEND
                 CASE 
                     WHEN COALESCE(a.total_asignado, 0) >= c.cantidad THEN 'asignado'
-                    WHEN c.estatus = 'asignado' THEN 'asignado'
+                    WHEN c.estatus = 'asignacion parcial' THEN 'asignacion parcial'
                     ELSE c.estatus
-                END AS estatus
+                END AS estatus,
+                pt.tiempo AS tiempo_base,
+                o.prioridad
             FROM admin_costura_cortes c
+            LEFT JOIN admin_costura_ordenes o ON c.orden_id = o.id
             LEFT JOIN (
-                SELECT op, SUM(cantidad_asignada) as total_asignado 
+                SELECT orden_id, SUM(cantidad_asignada) as total_asignado 
                 FROM admin_costura_asignaciones
-                GROUP BY op
-            ) a ON c.op = a.op
+                GROUP BY orden_id
+            ) a ON COALESCE(c.orden_id, c.id) = a.orden_id -- JOIN MÁS SEGURO POR ID
+            LEFT JOIN productos_tiempos pt ON c.producto = pt.codigo
             ORDER BY c.id DESC
         `)
 

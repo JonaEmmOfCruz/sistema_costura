@@ -352,7 +352,7 @@ export default function SubirOrdenesPage() {
                                         : 'border-transparent text-gray-400 hover:text-gray-600'
                                 }`}
                             >
-                                Asignaciones de operadores ({tiempos.length})
+                                Estatus de costura ({tiempos.length})
                             </button>
                         </div>
 

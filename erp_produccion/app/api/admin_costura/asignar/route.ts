@@ -15,61 +15,115 @@ export async function POST(request: Request) {
         try {
             await connection.beginTransaction()
 
+            // 1. Obtener la orden y el tiempo que toma cada pieza (cruce con productos_tiempos)
             const [ordenRows]: any = await connection.query(
-                `SELECT * FROM admin_costura_cortes 
-                 WHERE (orden_id = ? OR id = ?) AND estatus = 'cortada'`,
+                `SELECT c.*, pt.tiempo AS tiempo_base
+                 FROM admin_costura_cortes c
+                 LEFT JOIN productos_tiempos pt ON c.producto = pt.codigo
+                 WHERE (c.orden_id = ? OR c.id = ?) 
+                 AND c.estatus IN ('cortada', 'asignacion parcial')`,
                 [orden_id, orden_id]
             )
 
             if (ordenRows.length === 0) {
                 await connection.release()
-                return NextResponse.json({ success: false, message: 'Orden no encontrada o aún no ha sido cortada' }, { status: 404 })
+                return NextResponse.json({ success: false, message: 'Orden no encontrada, o ya fue totalmente asignada.' }, { status: 404 })
             }
 
             const orden = ordenRows[0]
-            const cantidadTotal = Number(orden.cantidad) || 0
+            const cantidadTotalOriginal = Number(orden.cantidad) || 0
+            const tiempoUnidad = Number(orden.tiempo_base) || 0
             const realOrdenId = orden.orden_id || orden.id
 
-            // Validar operadores disponibles que no tengan asignaciones pendientes
+            // 2. Calcular cuántas piezas faltan por asignar (la "cola")
+            const [asignaciones]: any = await connection.query(
+                `SELECT SUM(cantidad_asignada) AS total_asignado 
+                 FROM admin_costura_asignaciones 
+                 WHERE orden_id = ?`,
+                [realOrdenId]
+            )
+            const yaAsignado = Number(asignaciones[0].total_asignado) || 0
+            const cantidadPendiente = cantidadTotalOriginal - yaAsignado
+
+            if (cantidadPendiente <= 0) {
+                await connection.release()
+                return NextResponse.json({ success: false, message: 'Esta orden ya fue completamente asignada.' }, { status: 400 })
+            }
+
+            // 3. Validar operadores disponibles calculando sus minutos libres (Límite: 480 min)
             const [operadoresRows]: any = await connection.query(`
-                SELECT u.id AS usuario_id, u.nombre 
+                SELECT 
+                    u.id AS usuario_id, 
+                    u.nombre,
+                    COALESCE(SUM(a.cantidad_asignada * IFNULL(pt.tiempo, 0)), 0) AS minutos_ocupados
                 FROM usuarios u
                 JOIN operadores_disponibilidad d ON u.id = d.usuario_id
+                LEFT JOIN admin_costura_asignaciones a 
+                    ON a.id_operador = u.id AND a.estatus NOT IN ('completado', 'terminado', 'entregado')
+                LEFT JOIN productos_tiempos pt 
+                    ON a.producto = pt.codigo
                 WHERE u.tipo_usuario = 'operador' 
                   AND d.disponible_hasta > NOW()
-                  AND NOT EXISTS (
-                      SELECT 1 FROM admin_costura_asignaciones a 
-                      WHERE a.id_operador = u.id
-                      AND a.estatus NOT IN ('completado', 'terminado', 'entregado') 
-                  )
+                GROUP BY u.id, u.nombre
+                HAVING minutos_ocupados < 480
             `)
 
-            if (operadoresRows.length === 0) {
+            let operadores = operadoresRows.map((op: any) => {
+                const maxMinutos = 480;
+                const minOcupados = Number(op.minutos_ocupados) || 0;
+                const libres = maxMinutos - minOcupados;
+                
+                let capacidadPiezas = 0;
+                if (tiempoUnidad > 480) {
+                    // Regla especial: si la pieza toma más de 8 horas, se asigna solo 1 a cada operador libre
+                    capacidadPiezas = 1;
+                } else if (tiempoUnidad > 0) {
+                    capacidadPiezas = Math.floor(libres / tiempoUnidad);
+                } else {
+                    capacidadPiezas = cantidadPendiente;
+                }
+
+                return {
+                    ...op,
+                    capacidadPiezas,
+                    asignadas: 0
+                }
+            });
+
+            // Filtrar los que tengan capacidad
+            operadores = operadores.filter((op: any) => op.capacidadPiezas > 0);
+
+            if (operadores.length === 0) {
                 await connection.rollback()
                 connection.release()
                 return NextResponse.json({ 
                     success: false, 
-                    message: 'No hay operadores disponibles o todos los operadores ya tienen una OP asignada en este momento.' 
+                    message: 'No hay operadores libres o con tiempo suficiente en este momento para tomar la orden (superan las 8 horas).' 
                 }, { status: 400 })
             }
 
-            const totalOperadores = operadoresRows.length
-            const cantidadBase = Math.floor(cantidadTotal / totalOperadores)
-            let sobrante = cantidadTotal % totalOperadores
-            let operadoresAsignadosCount = 0
+            // 4. Reparto equitativo iterativo (round robin) para no pasarse de la capacidad de nadie
+            let pendiente = cantidadPendiente;
+            let asignadoEnEstaVuelta = 0;
+            let huboAsignacion = true;
 
-            for (let i = 0; i < totalOperadores; i++) {
-                const opRow = operadoresRows[i]
+            while (pendiente > 0 && huboAsignacion) {
+                huboAsignacion = false;
                 
-                // Reparto equitativo paso a paso
-                let asignada = cantidadBase
-                if (sobrante > 0) {
-                    asignada += 1
-                    sobrante -= 1
+                for (let op of operadores) {
+                    if (pendiente > 0 && op.asignadas < op.capacidadPiezas) {
+                        op.asignadas += 1;
+                        pendiente -= 1;
+                        asignadoEnEstaVuelta += 1;
+                        huboAsignacion = true;
+                    }
                 }
+            }
 
-                // CONDICIÓN CLAVE: Solo insertamos los operadores que tengan cantidad asignada > 0
-                if (asignada > 0) {
+            let operadoresAsignadosCount = 0;
+
+            for (const op of operadores) {
+                if (op.asignadas > 0) {
                     await connection.query(
                         `INSERT INTO admin_costura_asignaciones 
                         (orden_id, rq, op, producto, nombre, cantidad_asignada, id_operador, nombre_operador, estatus) 
@@ -80,28 +134,32 @@ export async function POST(request: Request) {
                             orden.op, 
                             orden.producto, 
                             orden.nombre, 
-                            asignada, 
-                            opRow.usuario_id, 
-                            opRow.nombre
+                            op.asignadas, 
+                            op.usuario_id, 
+                            op.nombre
                         ]
                     )
-                    operadoresAsignadosCount++
+                    operadoresAsignadosCount++;
                 }
             }
 
-            // Actualizar el estatus de la orden original a 'asignado'
+            // 5. Actualizar estatus (asignado total o parcial)
+            const iraACola = pendiente > 0;
+            const estatusFinal = iraACola ? 'asignacion parcial' : 'asignado'
+            
             await connection.query(
-                `UPDATE admin_costura_cortes SET estatus = 'asignado' WHERE id = ?`,
-                [orden.id]
+                `UPDATE admin_costura_cortes SET estatus = ? WHERE id = ?`,
+                [estatusFinal, orden.id]
             )
 
             await connection.commit()
             connection.release()
 
-            // Mensaje personalizado según la distribución final
-            const mensajeRespuesta = cantidadTotal < totalOperadores
-                ? `Orden asignada a ${operadoresAsignadosCount} operador (1 unidad cada uno). Los operadores restantes continúan libres.`
-                : `Asignación equitativa completada entre ${operadoresAsignadosCount} operadores libres.`
+            // 6. Generar mensaje de respuesta detallado
+            let mensajeRespuesta = `Se asignaron ${asignadoEnEstaVuelta} piezas entre ${operadoresAsignadosCount} operadores.`
+            if (iraACola) {
+                mensajeRespuesta += ` Restan ${pendiente} piezas en cola esperando operadores libres o con tiempo disponible.`
+            }
 
             return NextResponse.json({ 
                 success: true, 

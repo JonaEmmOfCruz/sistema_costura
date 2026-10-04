@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import AreaCard from "@/components/AreaCard"
-import ReusableTable from "@/components/ReusableTable"
 
 export default function OperadoresPage() {
     const [loading, setLoading] = useState(true)
@@ -46,7 +45,6 @@ export default function OperadoresPage() {
         }
     }
 
-    // Nueva función para deshabilitar operador
     const handleDeshabilitarOperador = async (id: number) => {
         try {
             const res = await fetch('/api/operadores/deshabilitar', {
@@ -84,60 +82,53 @@ export default function OperadoresPage() {
         cargarOrdenes()
     }, [])
 
-    const columns = [
-        { header: 'RQ', accessorKey: 'rq' },
-        { header: 'op', accessorKey: 'op' },
-        { header: 'producto', accessorKey: 'producto' },
-        { header: 'nombre', accessorKey: 'nombre' },
-        { header: 'Cantidad asignada', accessorKey: 'cantidad_asignada' },
-        { header: 'Operador', accessorKey: 'nombre_operador' },
-    ]
-
     if (loading) {
         return <div className="text-center py-10 text-gray-400 text-sm">Cargando operadores...</div>
     }
 
     return (
-        <>
-            <div className="mx-auto space-y-6 p-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-800">Disponibilidad de Operadores</h1>
-                    <p className="text-sm text-gray-500 mt-1">
-                        Habilite o deshabilite a los operadores para la asignación de próximas órdenes de costura.
-                    </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {operadores.map((op) => {
-                        // Calculamos si sigue disponible evaluando la fecha de expiración
-                        const ahora = new Date()
-                        const expira = op.disponible_hasta ? new Date(op.disponible_hasta) : null
-                        const estaDisponible = expira ? expira > ahora : false
-
-                        return (
-                            <AreaCard
-                                key={op.id}
-                                numeroEmpleado={op.numero_empleado}
-                                nombre={op.nombre}
-                                area={op.area || 'Operaciones'}
-                                disponible={estaDisponible}
-                                expiraEn={op.disponible_hasta}
-                                onHabilitar={() => handleHabilitarOperador(op.id)}
-                                onDeshabilitar={() => handleDeshabilitarOperador(op.id)}
-                            />
-                        )
-                    })}
-                </div>
-
-                {operadores.length === 0 && (
-                    <div className="text-center py-12 text-gray-400 text-sm">
-                        No se encontraron operadores registrados.
-                    </div>
-                )}
-            </div>
+        <div className="mx-auto space-y-6 p-6">
             <div>
-                <ReusableTable data={asignadas} columns={columns} searchField='op' searchPlaceholder="Buscar por op..." />
+                <h1 className="text-2xl font-bold text-gray-800">Disponibilidad de Operadores</h1>
+                <p className="text-sm text-gray-500 mt-1">
+                    Habilite o deshabilite a los operadores para la asignación de próximas órdenes de costura.
+                </p>
             </div>
-        </>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {/* Renderizamos a los operadores exactamente en el orden de la base de datos */}
+                {operadores.map((op) => {
+                    // Calculamos si sigue disponible evaluando la fecha de expiración
+                    const ahora = new Date()
+                    const expira = op.disponible_hasta ? new Date(op.disponible_hasta) : null
+                    const estaDisponible = expira ? expira > ahora : false
+
+                    // Filtrar órdenes asignadas a este operador (que no estén terminadas)
+                    const ordenesAsignadas = asignadas.filter(
+                        (a: any) => a.nombre_operador === op.nombre && a.estatus !== 'TERMINADO' && a.estatus !== 'completado'
+                    )
+
+                    return (
+                        <AreaCard
+                            key={op.id}
+                            numeroEmpleado={op.numero_empleado}
+                            nombre={op.nombre}
+                            area={op.area || 'Operaciones'}
+                            disponible={estaDisponible}
+                            expiraEn={op.disponible_hasta}
+                            onHabilitar={() => handleHabilitarOperador(op.id)}
+                            onDeshabilitar={() => handleDeshabilitarOperador(op.id)}
+                            ordenesAsignadas={ordenesAsignadas}
+                        />
+                    )
+                })}
+            </div>
+
+            {operadores.length === 0 && (
+                <div className="text-center py-12 text-gray-400 text-sm">
+                    No se encontraron operadores registrados.
+                </div>
+            )}
+        </div>
     )
 }

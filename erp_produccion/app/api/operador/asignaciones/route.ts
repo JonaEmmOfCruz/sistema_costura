@@ -10,11 +10,11 @@ export async function GET(request: Request) {
             return NextResponse.json({ success: false, message: 'ID de operador requerido' }, { status: 400 })
         }
 
-        // Se agrega la condición para traer solo la asignación pendiente (sin terminar)
         const [rows]: any = await pool.query(`
-            SELECT a.*, m.ruta as manual_ruta, m.tipo as manual_tipo, m.nombre_original as manual_nombre
+            SELECT a.*, m.ruta as manual_ruta, m.tipo as manual_tipo, m.nombre_original as manual_nombre, pt.tiempo AS tiempo_base
             FROM admin_costura_asignaciones a
             LEFT JOIN manuales_produccion m ON a.producto LIKE CONCAT(SUBSTRING_INDEX(m.nombre_original, '.', 1), '%')
+            LEFT JOIN productos_tiempos pt ON a.producto = pt.codigo
             WHERE a.id_operador = ? 
               AND (a.estatus IS NULL OR a.estatus != 'TERMINADO')
             ORDER BY a.id ASC

@@ -83,13 +83,21 @@ export default function OperadorPage() {
                 const nuevaAsignacion = data.asignaciones[0]
                 setAsignacion(nuevaAsignacion)
                 
+                // Extraer el tiempo de la tabla productos_tiempos (asumiendo que viene en segundos o se usa directamente como segundos iniciales por pieza)
+                const tiempoBaseSegundos = Number(nuevaAsignacion.tiempo_base) || 0
+                const tiempoTotalObj = tiempoBaseSegundos * Number(nuevaAsignacion.cantidad_asignada)
+
                 const inicioGuardado = localStorage.getItem(`costura_inicio_${nuevaAsignacion.id}`)
                 if (inicioGuardado) {
                     const transcurrido = Math.floor((Date.now() - Number(inicioGuardado)) / 1000)
-                    setSegundos(transcurrido > 0 ? transcurrido : 0)
+                    let restante = tiempoTotalObj - transcurrido
+                    if (restante < 0) restante = 0
+                    
+                    setSegundos(restante)
                     setCosturaActiva(true)
                     setMostrarAlerta(false)
                 } else {
+                    setSegundos(tiempoTotalObj)
                     setMostrarAlerta(true)
                 }
             } else {
@@ -104,7 +112,8 @@ export default function OperadorPage() {
     useEffect(() => {
         let intervalo: any = null
         if (costuraActiva) {
-            intervalo = setInterval(() => setSegundos(prev => prev + 1), 1000)
+            // Cuenta regresiva
+            intervalo = setInterval(() => setSegundos(prev => (prev > 0 ? prev - 1 : 0)), 1000)
         } else {
             clearInterval(intervalo)
         }

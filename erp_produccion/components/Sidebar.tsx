@@ -72,15 +72,15 @@ export default function Sidebar({ isOpen, onToggleSidebar }: SidebarProps) {
             roles: ["Administrador"] // Opción exclusiva de administración
         },
         {
-            name: "Operadores",
-            href: "/admin_costura/operadores",
-            icon: "lucide:user-round-cog",
-            roles: ["Administrador_Costura"] // Opción exclusiva de administración
-        },
-        {
             name: "Ordenes",
             href: "/admin_costura/ordenes",
             icon: "lucide:file-spreadsheet",
+            roles: ["Administrador_Costura"] // Opción exclusiva de administración
+        },
+        {
+            name: "Operadores",
+            href: "/admin_costura/operadores",
+            icon: "lucide:user-round-cog",
             roles: ["Administrador_Costura"] // Opción exclusiva de administración
         },
         {

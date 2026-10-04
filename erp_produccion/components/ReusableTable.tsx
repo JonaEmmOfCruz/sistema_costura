@@ -4,7 +4,7 @@ import { useState, useMemo } from "react"
 import { Icon } from "@iconify/react"
 
 interface Column<T> {
-    header: React.ReactNode; // <-- Modificado de 'string' a 'React.ReactNode' para aceptar JSX
+    header: React.ReactNode; 
     accessorKey: keyof T | ((row: T) => React.ReactNode);
     className?: string;
 }
@@ -12,30 +12,35 @@ interface Column<T> {
 interface ReusableTableProps<T> {
     data: T[];
     columns: Column<T>[];
-    searchField?: keyof T;
+    searchField?: keyof T | string | boolean; // Mantenemos la prop para no romper otras vistas
     searchPlaceholder?: string;
 }
 
 export default function ReusableTable<T extends Record<string, any>>({
-    data = [], // <-- Aseguramos un arreglo por defecto aquí
+    data = [], 
     columns,
     searchField,
-    searchPlaceholder = "Buscar registros..."
+    searchPlaceholder = "Buscar en toda la tabla..."
 }: ReusableTableProps<T>) {
     const [searchTerm, setSearchTerm] = useState("")
     const [currentPage, setCurrentPage] = useState(1)
     const [rowsPerPage, setRowsPerPage] = useState(5)
 
-    // Filtrar datos de forma segura
+    // Filtrar datos de forma segura en TODAS las columnas
     const filteredData = useMemo(() => {
         const safeData = Array.isArray(data) ? data : []
-        if (!searchTerm || !searchField) return safeData
+        if (!searchTerm) return safeData
+
+        const term = searchTerm.toLowerCase()
+
         return safeData.filter((item) => {
-            const value = item[searchField]
-            if (value == null) return false
-            return String(value).toLowerCase().includes(searchTerm.toLowerCase())
+            // Iteramos sobre todos los valores del objeto/fila en lugar de un solo campo
+            return Object.values(item).some(value => {
+                if (value == null) return false
+                return String(value).toLowerCase().includes(term)
+            })
         })
-    }, [data, searchTerm, searchField])
+    }, [data, searchTerm])
 
     // Calcular paginación de manera segura
     const totalPages = Math.ceil(filteredData.length / rowsPerPage) || 1
@@ -48,7 +53,7 @@ export default function ReusableTable<T extends Record<string, any>>({
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             {/* Cabecera con Buscador y Selector de Filas */}
             <div className="p-4 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-                {searchField && (
+                {searchField !== undefined && (
                     <div className="relative w-full sm:w-72">
                         <Icon icon="lucide:search" className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-lg" />
                         <input
@@ -105,10 +110,10 @@ export default function ReusableTable<T extends Record<string, any>>({
                                     {columns.map((col, colIndex) => {
                                         const content = typeof col.accessorKey === 'function'
                                             ? col.accessorKey(row)
-                                            : row[col.accessorKey];
+                                            : row[col.accessorKey as keyof T];
                                         return (
                                             <td key={colIndex} className={`py-4 px-6 ${col.className || ''}`}>
-                                                {content ?? '-'}
+                                                {content as React.ReactNode ?? '-'}
                                             </td>
                                         )
                                     })}
