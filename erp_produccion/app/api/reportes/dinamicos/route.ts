@@ -1,47 +1,72 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 
-// DICCIONARIO DE SEGURIDAD ACTUALIZADO
-const SCHEMAS: Record<string, { dimensions: string[], metrics: string[] }> = {
-    usuarios: { dimensions: ['area', 'tipo_usuario'], metrics: ['id'] },
-    admin_costura_ordenes: { dimensions: ['cliente', 'prioridad', 'producto'], metrics: ['cantidad', 'id'] },
-    admin_costura_asignaciones: { dimensions: ['nombre_operador', 'producto', 'estatus'], metrics: ['cantidad_asignada', 'id'] },
-    admin_costura_cortes: { dimensions: ['estatus', 'producto'], metrics: ['cantidad', 'id'] },
-    operador_tiempos_costura: { dimensions: ['id_operador', 'producto'], metrics: ['cantidad_asignada', 'id'] },
-    ordenes_produccion: { dimensions: ['cliente', 'prioridad', 'producto'], metrics: ['cantidad', 'id'] },
-    productos_tiempos: { dimensions: ['modelo', 'costura'], metrics: ['id'] },
-    admin_costura_papelera: { dimensions: ['motivo', 'producto', 'cliente'], metrics: ['cantidad', 'id'] }
-}
-
 export async function POST(request: Request) {
     try {
-        const { tabla, dimensionX, metricaY } = await request.json()
+        const { tabla, dimensionX, metricasY } = await request.json()
 
-        if (!SCHEMAS[tabla]) {
-            return NextResponse.json({ success: false, message: 'Tabla no permitida' }, { status: 400 })
-        }
-        if (!SCHEMAS[tabla].dimensions.includes(dimensionX) || !SCHEMAS[tabla].metrics.includes(metricaY)) {
-            return NextResponse.json({ success: false, message: 'Columnas no permitidas' }, { status: 400 })
+        const [columnasBD]: any = await pool.query(
+            `SELECT COLUMN_NAME 
+             FROM information_schema.columns 
+             WHERE table_schema = DATABASE() AND table_name = ?`,
+            [tabla]
+        )
+
+        if (columnasBD.length === 0) {
+            return NextResponse.json({ success: false, message: `La tabla '${tabla}' no existe.` }, { status: 404 })
         }
 
-        const isCount = metricaY === 'id'
-        const selectY = isCount ? `COUNT(${metricaY})` : `SUM(${metricaY})`
+        const columnasValidas = columnasBD.map((col: any) => col.COLUMN_NAME)
+
+        if (!columnasValidas.includes(dimensionX)) {
+            return NextResponse.json({ success: false, message: `El campo '${dimensionX}' no es válido.` }, { status: 400 })
+        }
+
+        if (!Array.isArray(metricasY) || metricasY.length === 0) {
+            return NextResponse.json({ success: false, message: 'Se requiere al menos un valor.' }, { status: 400 })
+        }
+
+        for (const m of metricasY) {
+            if (!columnasValidas.includes(m)) {
+                return NextResponse.json({ success: false, message: `El campo '${m}' no existe.` }, { status: 400 })
+            }
+        }
+
+        // Prefijamos con el nombre de la tabla para evitar choques con el JOIN
+        const selectsY = metricasY.map(m => {
+            if (m === 'id') {
+                return `COUNT(${tabla}.${m}) AS ${m}`
+            } else {
+                return `SUM(CAST(COALESCE(${tabla}.${m}, 0) AS DECIMAL(10,2))) AS ${m}`
+            }
+        }).join(', ')
         
+        let labelSelect = `COALESCE(CAST(${tabla}.${dimensionX} AS CHAR), 'Sin definir')`;
+        let joinSQL = '';
+
+        // INTERCEPTOR: Convierte IDs a Nombres Reales conectando con la tabla de usuarios
+        if (dimensionX === 'id_operador' || dimensionX === 'id_usuario') {
+            labelSelect = `COALESCE(u.nombre, 'Operador Desconocido')`;
+            joinSQL = `LEFT JOIN usuarios u ON ${tabla}.${dimensionX} = u.id`;
+        }
+
         const query = `
             SELECT 
-                COALESCE(${dimensionX}, 'Sin definir') AS label, 
-                ${selectY} AS value 
+                ${labelSelect} AS label, 
+                ${selectsY}
             FROM ${tabla} 
-            GROUP BY ${dimensionX}
-            ORDER BY value DESC
-            LIMIT 20
+            ${joinSQL}
+            GROUP BY ${tabla}.${dimensionX}
+            ORDER BY ${metricasY[0]} DESC
+            LIMIT 50
         `
 
         const [rows] = await pool.query(query)
+        
         return NextResponse.json({ success: true, data: rows })
 
     } catch (error) {
-        console.error('Error generando reporte:', error)
-        return NextResponse.json({ success: false, message: 'Error interno del servidor' }, { status: 500 })
+        console.error('Error generando reporte dinámico:', error)
+        return NextResponse.json({ success: false, message: 'Error interno del servidor.' }, { status: 500 })
     }
 }
