@@ -179,13 +179,11 @@ export default function SubirOrdenesPage() {
                     >
                         <Icon icon="lucide:calendar" className="text-sm" />
                     </button>
-                    {/* Input date transparente superpuesto al icono para activar el selector nativo del navegador */}
                     <input
                         type="date"
                         value={activeDate}
                         onChange={(e) => {
                             if (e.target.value) {
-                                // Al seleccionar una nueva fecha se desactiva y limpia el filtro anterior
                                 setFilter({ field: fieldKey, date: e.target.value })
                             } else {
                                 setFilter(null)
@@ -225,23 +223,35 @@ export default function SubirOrdenesPage() {
         },
     ]
 
+    const formatSegundosAHMS = (segundos: number) => {
+        if (isNaN(segundos) || segundos <= 0) return '-'
+        const h = Math.floor(segundos / 3600)
+        const m = Math.floor((segundos % 3600) / 60)
+        const s = segundos % 60
+        
+        if (h > 0) return `${h}h ${m}m ${s}s`
+        if (m > 0) return `${m}m ${s}s`
+        return `${s}s`
+    }
+
     const formatTiempoTranscurrido = (inicio: any, fin: any) => {
-        if (!inicio || !fin) return '-';
-        const start = new Date(inicio).getTime();
-        const end = new Date(fin).getTime();
-        if (isNaN(start) || isNaN(end)) return '-';
+        if (!inicio || !fin) return '-'
+        const start = new Date(inicio).getTime()
+        const end = new Date(fin).getTime()
+        if (isNaN(start) || isNaN(end)) return '-'
         
-        const diffMs = end - start;
-        if (diffMs < 0) return '-';
+        const diffMs = end - start
+        if (diffMs < 0) return '-'
         
-        const diffSeg = Math.floor(diffMs / 1000);
-        const h = Math.floor(diffSeg / 3600);
-        const m = Math.floor((diffSeg % 3600) / 60);
-        const s = diffSeg % 60;
-        
-        if (h > 0) return `${h}h ${m}m ${s}s`;
-        if (m > 0) return `${m}m ${s}s`;
-        return `${s}s`;
+        const diffSeg = Math.floor(diffMs / 1000)
+        return formatSegundosAHMS(diffSeg)
+    }
+
+    // Función que muestra EXCLUSIVAMENTE el tiempo guardado por el temporizador
+    const obtenerTiempoCosturaGuardado = (row: any) => {
+        const segundosGuardados = Number(row.tiempo_segundos ?? row.tiempo ?? row.segundos)
+        if (isNaN(segundosGuardados) || segundosGuardados <= 0) return '-'
+        return formatSegundosAHMS(segundosGuardados)
     }
 
     const cortesColumns = [
@@ -281,7 +291,7 @@ export default function SubirOrdenesPage() {
         },
         { 
             header: <span className="uppercase text-xs font-bold text-gray-500">Tiempo de Costura</span>, 
-            accessorKey: (row: any) => formatTiempoTranscurrido(row.fecha_inicio, row.fecha_fin) 
+            accessorKey: (row: any) => obtenerTiempoCosturaGuardado(row) 
         },
     ]
 
@@ -289,7 +299,6 @@ export default function SubirOrdenesPage() {
     const filterData = (items: any[], dateFilter?: { field: string; date: string } | null) => {
         let result = items
 
-        // Aplicar filtro de fecha específico de columna activa
         if (dateFilter && dateFilter.field && dateFilter.date) {
             result = result.filter(item => {
                 const itemDate = getDateString(item[dateFilter.field])

@@ -4,12 +4,39 @@ import { useEffect, useState } from "react"
 import ReusableTable from "@/components/ReusableTable"
 import { Icon } from "@iconify/react"
 
+// Lista de prefijos prioritarios
+const PREFIJOS_PRIORITARIOS = [
+    "103-070", "103-046", "202-070", "102-070", "102-020",
+    "102-019", "102-160", "102-139", "102-137", "102-136",
+    "202-136", "102-135", "102-132", "202-013", "102-110",
+    "202-110", "202-137", "101-002"
+];
+
+const esPrioritario = (row: any) => {
+    const textoProducto = String(row.producto || '').trim();
+    const textoNombre = String(row.nombre || '').trim();
+
+    return PREFIJOS_PRIORITARIOS.some(prefijo => 
+        textoProducto.startsWith(prefijo) || textoNombre.startsWith(prefijo)
+    );
+};
+
+interface ModalState {
+    isOpen: boolean;
+    type: 'confirm' | 'success' | 'error';
+    message: string;
+    onConfirm?: () => void;
+}
+
 export default function OrdenesCortadasPage() {
     const [loading, setLoading] = useState(true)
     const [ordenesCortadas, setOrdenesCortadas] = useState<any[]>([])
+    const [modal, setModal] = useState<ModalState>({ isOpen: false, type: 'confirm', message: '' })
 
     const cargarOrdenesCortadas = async () => {
         try {
+            await fetch('/api/admin_costura/auto_asignar', { method: 'POST' })
+
             const res = await fetch('/api/admin_costura/cortadas')
             const data = await res.json()
             if (data.success) {
@@ -26,50 +53,26 @@ export default function OrdenesCortadasPage() {
         cargarOrdenesCortadas()
     }, [])
 
-    const handleAsignacionEquitativa = async (orden: any) => {
-        if (!confirm(`¿Deseas asignar equitativamente la cantidad de esta OP (${orden.cantidad}) entre los operadores disponibles?`)) {
-            return;
-        }
-
-        try {
-            const res = await fetch('/api/admin_costura/asignar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orden_id: orden.id })
-            })
-            const data = await res.json()
-            
-            if (data.success) {
-                alert(data.message)
-                cargarOrdenesCortadas()
-            } else {
-                alert(data.message || "No se puede realizar la asignación en este momento.")
-            }
-        } catch (error) {
-            console.error("Error en asignación equitativa:", error)
-            alert("Ocurrió un error inesperado al intentar realizar la asignación.")
-        }
-    }
+    const cerrarModal = () => setModal(prev => ({ ...prev, isOpen: false }))
 
     const columns = [
         {
-            header: 'Asignación',
+            header: 'Prioridad',
             accessorKey: (row: any) => {
-                const estaAsignada = row.estatus?.toLowerCase() === 'asignado';
-
+                const prioritario = esPrioritario(row);
+                
+                if (prioritario) {
+                    return (
+                        <span className="px-2.5 py-1 text-[11px] font-bold rounded-full uppercase tracking-wider bg-red-50 text-red-600 border border-red-200">
+                            Prioritario
+                        </span>
+                    )
+                }
+                
                 return (
-                    <button
-                        onClick={() => handleAsignacionEquitativa(row)}
-                        disabled={estaAsignada}
-                        className={`px-3 py-1 text-xs rounded-lg shadow-sm flex items-center gap-1.5 transition-colors ${
-                            estaAsignada
-                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
-                                : 'bg-slate-700 text-white hover:bg-slate-800'
-                        }`}
-                    >
-                        <Icon icon={estaAsignada ? "lucide:check-circle-2" : "lucide:users"} className="text-sm" />
-                        <span>{estaAsignada ? 'Asignada' : 'Asignar'}</span>
-                    </button>
+                    <span className="px-2.5 py-1 text-[11px] font-bold rounded-full uppercase tracking-wider bg-slate-100 text-slate-600">
+                        Normal
+                    </span>
                 )
             }
         },
@@ -79,22 +82,99 @@ export default function OrdenesCortadasPage() {
         { header: 'Nombre', accessorKey: 'nombre' },
         { header: 'Cantidad', accessorKey: 'cantidad' },
         {
-            header: 'Estatus',
+            header: 'Asignadas',
             accessorKey: (row: any) => {
-                const estaAsignada = row.estatus?.toLowerCase() === 'asignado';
-
-                if (estaAsignada) {
-                    return (
-                        <span className="px-2.5 py-1 bg-blue-50 text-blue-600 border border-blue-200/60 rounded-full text-xs font-semibold">
-                            asignado
+                const asignado = Number(row.total_asignado) || 0;
+                const total = Number(row.cantidad) || 0;
+                const faltantes = total - asignado;
+                
+                return (
+                    <div className="flex flex-col items-start justify-center">
+                        <span className="font-semibold text-slate-700 text-sm">
+                            {asignado} <span className="text-gray-400 font-normal">/ {total}</span>
                         </span>
+                        {faltantes > 0 && asignado > 0 && (
+                            <span className="text-[9px] font-bold text-amber-600 tracking-wide border border-amber-200 bg-amber-50 rounded px-1 mt-0.5 uppercase">
+                                Faltan {faltantes}
+                            </span>
+                        )}
+                        {asignado === 0 && (
+                            <span className="text-[9px] font-bold text-gray-500 tracking-wide border border-gray-200 bg-gray-50 rounded px-1 mt-0.5 uppercase">
+                                En espera
+                            </span>
+                        )}
+                    </div>
+                )
+            }
+        },
+        {
+            header: 'Tiempo Estimado',
+            accessorKey: (row: any) => {
+                const tiempoUnidadSegundos = Number(row.tiempo_base) || 0;
+                const tiempoTotalSegundos = row.cantidad * tiempoUnidadSegundos;
+                
+                // Convertimos a minutos para la vista y validación
+                const tiempoTotalMinutos = Math.ceil(tiempoTotalSegundos / 60);
+                const excedeTurno = tiempoTotalMinutos > 480;
+
+                if (!tiempoUnidadSegundos) {
+                    return <span className="text-gray-400 text-xs italic">Sin métrica</span>;
+                }
+
+                return (
+                    <div className="flex flex-col items-start justify-center">
+                        <span className={`font-semibold text-sm ${excedeTurno ? 'text-red-600' : 'text-slate-700'}`}>
+                            {tiempoTotalMinutos} min
+                        </span>
+                        {excedeTurno && (
+                            <span className="text-[9px] font-bold text-red-500 tracking-wide border border-red-200 bg-red-50 rounded px-1 mt-0.5 uppercase">
+                                + 8 Horas
+                            </span>
+                        )}
+                    </div>
+                )
+            }
+        },
+        {
+            header: 'Estatus y Razón',
+            accessorKey: (row: any) => {
+                const estatusActual = row.estatus?.toLowerCase();
+
+                if (estatusActual === 'asignado') {
+                    return (
+                        <div className="flex flex-col items-start gap-1">
+                            <span className="px-2.5 py-1 bg-blue-50 text-blue-600 border border-blue-200/60 rounded-full text-xs font-semibold flex items-center gap-1">
+                                <Icon icon="lucide:check-circle-2" /> Asignado
+                            </span>
+                            <span className="text-[10px] text-gray-500 max-w-[150px] leading-tight">
+                                Repartida exitosamente entre el personal.
+                            </span>
+                        </div>
+                    )
+                }
+                
+                if (estatusActual === 'asignacion parcial') {
+                    return (
+                        <div className="flex flex-col items-start gap-1">
+                            <span className="px-2.5 py-1 bg-purple-50 text-purple-600 border border-purple-200/60 rounded-full text-xs font-semibold flex items-center gap-1 whitespace-nowrap">
+                                <Icon icon="lucide:pause-circle" /> En Cola / Pausada
+                            </span>
+                            <span className="text-[10px] text-gray-500 max-w-[150px] leading-tight">
+                                Sin tiempo libre (480 min) o interrumpida por orden prioritaria.
+                            </span>
+                        </div>
                     )
                 }
 
                 return (
-                    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 border border-emerald-200/60 rounded-full text-xs font-semibold">
-                        {row.estatus || 'cortada'}
-                    </span>
+                    <div className="flex flex-col items-start gap-1">
+                        <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 border border-emerald-200/60 rounded-full text-xs font-semibold flex items-center gap-1">
+                            <Icon icon="lucide:scissors" /> {row.estatus || 'Cortada'}
+                        </span>
+                        <span className="text-[10px] text-gray-500 max-w-[150px] leading-tight">
+                            Lista. Esperando ciclo de auto-asignación.
+                        </span>
+                    </div>
                 )
             }
         },
@@ -113,11 +193,11 @@ export default function OrdenesCortadasPage() {
     }
 
     return (
-        <div className="mx-auto space-y-6 p-6">
+        <div className="mx-auto space-y-6 p-6 relative">
             <div>
                 <h1 className="text-2xl font-bold text-gray-800">Historial de Órdenes Cortadas</h1>
                 <p className="text-sm text-gray-500 mt-1">
-                    Listado oficial de las órdenes que han completado exitosamente su proceso de corte.
+                    Listado oficial de las órdenes que han completado exitosamente su proceso de corte. Las asignaciones se gestionan automáticamente basándose en la prioridad y capacidad (480 min).
                 </p>
             </div>
 
@@ -129,6 +209,52 @@ export default function OrdenesCortadasPage() {
                     searchPlaceholder="Buscar por op..."
                 />
             </div>
+
+            {/* Modal Minimalista */}
+            {modal.isOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+                        <div className="flex items-center gap-3">
+                            {modal.type === 'confirm' && <Icon icon="lucide:help-circle" className="text-blue-500 text-2xl" />}
+                            {modal.type === 'success' && <Icon icon="lucide:check-circle-2" className="text-emerald-500 text-2xl" />}
+                            {modal.type === 'error' && <Icon icon="lucide:x-circle" className="text-red-500 text-2xl" />}
+                            <h3 className="font-semibold text-gray-800 text-lg">
+                                {modal.type === 'confirm' ? 'Confirmar Asignación' : modal.type === 'success' ? 'Éxito' : 'Error'}
+                            </h3>
+                        </div>
+                        
+                        <p className="text-gray-600 text-sm leading-relaxed">
+                            {modal.message}
+                        </p>
+
+                        <div className="flex justify-end gap-2 pt-2">
+                            {modal.type === 'confirm' ? (
+                                <>
+                                    <button 
+                                        onClick={cerrarModal}
+                                        className="px-4 py-2 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button 
+                                        onClick={modal.onConfirm}
+                                        className="px-4 py-2 text-sm font-medium text-white bg-slate-800 hover:bg-slate-700 rounded-lg shadow-sm transition-colors"
+                                    >
+                                        Asignar
+                                    </button>
+                                </>
+                            ) : (
+                                <button 
+                                    onClick={cerrarModal}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-slate-800 hover:bg-slate-700 rounded-lg shadow-sm transition-colors w-full"
+                                >
+                                    Entendido
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

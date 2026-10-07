@@ -25,6 +25,10 @@ export default function DynamicReportBuilder() {
     const [datosGrafica, setDatosGrafica] = useState<any[]>([])
     const [cargando, setCargando] = useState(false)
 
+    // NUEVO: Estados para los filtros de fecha
+    const [fechaInicio, setFechaInicio] = useState('')
+    const [fechaFin, setFechaFin] = useState('')
+
     const [dragOverX, setDragOverX] = useState(false)
     const [dragOverY, setDragOverY] = useState(false)
 
@@ -90,7 +94,10 @@ export default function DynamicReportBuilder() {
                 body: JSON.stringify({ 
                     tabla: temaSeleccionado, 
                     dimensionX: ejeX.id, 
-                    metricasY: ejeY.map(m => m.id) 
+                    metricasY: ejeY.map(m => m.id),
+                    // NUEVO: Enviamos las fechas al backend para que filtre
+                    fechaInicio: fechaInicio || undefined,
+                    fechaFin: fechaFin || undefined
                 })
             })
             const data = await res.json()
@@ -111,6 +118,14 @@ export default function DynamicReportBuilder() {
         }
     }
 
+    // NUEVO: Generación automática al cambiar fechas (si ya hay datos configurados)
+    useEffect(() => {
+        if (ejeX && ejeY.length > 0) {
+            generarResultados()
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fechaInicio, fechaFin])
+
     if (!esquemaBD) {
         return (
             <div className="flex h-96 items-center justify-center bg-white rounded-2xl border border-gray-100 shadow-sm text-gray-500 gap-3">
@@ -122,11 +137,10 @@ export default function DynamicReportBuilder() {
 
     const config = esquemaBD[temaSeleccionado]
 
-    // Estilo común para todos los Tooltips (Letras en Gris Fuerte)
     const estiloTooltip = {
         content: { backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '6px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' },
-        item: { color: '#374151', fontWeight: 600 }, // Gris Fuerte
-        label: { color: '#111827', fontWeight: 800, paddingBottom: '4px' } // Gris Casi Negro para el título
+        item: { color: '#374151', fontWeight: 600 }, 
+        label: { color: '#111827', fontWeight: 800, paddingBottom: '4px' } 
     }
 
     return (
@@ -134,10 +148,35 @@ export default function DynamicReportBuilder() {
             
             {/* 1. LIENZO PRINCIPAL (Izquierda) */}
             <div className="flex-1 bg-white m-2 shadow-sm rounded-md border border-gray-200 flex flex-col relative overflow-hidden">
-                <div className="h-12 border-b border-gray-100 flex items-center px-4 justify-between bg-gray-50/50">
+                <div className="h-14 border-b border-gray-100 flex items-center px-4 justify-between bg-gray-50/50">
                     <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                         <Icon icon="lucide:presentation" className="text-blue-600" /> Lienzo de Reporte
                     </h3>
+                    
+                    {/* NUEVO: Controles de Fecha */}
+                    <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded border border-gray-200 shadow-sm ml-auto mr-4">
+                        <div className="flex items-center gap-1.5">
+                            <Icon icon="lucide:calendar" className="text-gray-400 text-sm" />
+                            <span className="text-xs text-gray-500 font-medium">Desde:</span>
+                            <input 
+                                type="date" 
+                                value={fechaInicio} 
+                                onChange={(e) => setFechaInicio(e.target.value)}
+                                className="text-xs border-none outline-none text-gray-700 bg-transparent cursor-pointer"
+                            />
+                        </div>
+                        <div className="w-px h-4 bg-gray-300"></div>
+                        <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-gray-500 font-medium">Hasta:</span>
+                            <input 
+                                type="date" 
+                                value={fechaFin} 
+                                onChange={(e) => setFechaFin(e.target.value)}
+                                className="text-xs border-none outline-none text-gray-700 bg-transparent cursor-pointer"
+                            />
+                        </div>
+                    </div>
+
                     <button 
                         onClick={generarResultados}
                         disabled={cargando || !ejeX || ejeY.length === 0}

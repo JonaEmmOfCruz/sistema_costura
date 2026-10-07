@@ -19,6 +19,7 @@ export async function GET() {
                 COALESCE(u.nombre, t.id_operador) AS nombre_operador,
                 t.fecha_inicio,
                 t.fecha_fin,
+                t.tiempo_segundos,
                 t.creado_en
             FROM operador_tiempos_costura t
             LEFT JOIN usuarios u ON t.id_operador = u.id

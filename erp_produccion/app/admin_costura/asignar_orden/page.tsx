@@ -32,18 +32,45 @@ export default function OrdenesCortadasPage() {
     const [loading, setLoading] = useState(true)
     const [ordenesCortadas, setOrdenesCortadas] = useState<any[]>([])
     const [modal, setModal] = useState<ModalState>({ isOpen: false, type: 'confirm', message: '' })
+    
+    // Estado para controlar solicitudes enviadas localmente en la sesión
+    const [solicitandoId, setSolicitandoId] = useState<string | null>(null)
+    const [solicitados, setSolicitados] = useState<Record<string, boolean>>({})
+
+    // Mapa para registrar las peticiones pendientes consultadas en la BD
+    const [peticionesBD, setPeticionesBD] = useState<Record<string, boolean>>({})
 
     const cargarOrdenesCortadas = async () => {
         try {
             await fetch('/api/admin_costura/auto_asignar', { method: 'POST' })
 
-            const res = await fetch('/api/admin_costura/cortadas')
-            const data = await res.json()
-            if (data.success) {
-                setOrdenesCortadas(data.ordenes)
+            // Consultamos en paralelo las órdenes cortadas y las peticiones pendientes registradas en DB
+            const [resCortadas, resPeticiones] = await Promise.all([
+                fetch('/api/admin_costura/cortadas'),
+                fetch('/api/productos/peticiones')
+            ])
+
+            if (resCortadas.ok) {
+                const dataCortadas = await resCortadas.json()
+                if (dataCortadas.success) {
+                    setOrdenesCortadas(dataCortadas.ordenes || [])
+                }
             }
+
+            if (resPeticiones.ok) {
+                const dataPeticiones = await resPeticiones.json()
+                if (dataPeticiones.success && Array.isArray(dataPeticiones.peticiones)) {
+                    const mapaPeticiones: Record<string, boolean> = {}
+                    dataPeticiones.peticiones.forEach((p: any) => {
+                        if (p.codigo) mapaPeticiones[p.codigo] = true;
+                        if (p.op) mapaPeticiones[p.op] = true;
+                    })
+                    setPeticionesBD(mapaPeticiones)
+                }
+            }
+
         } catch (error) {
-            console.error("Error al cargar órdenes cortadas:", error)
+            console.error("Error al cargar órdenes o peticiones:", error)
         } finally {
             setLoading(false)
         }
@@ -54,6 +81,70 @@ export default function OrdenesCortadasPage() {
     }, [])
 
     const cerrarModal = () => setModal(prev => ({ ...prev, isOpen: false }))
+
+    // Función para extraer el modelo (2do string del formato string-string-string...)
+    const extraerModelo = (producto: string) => {
+        if (!producto) return '';
+        const partes = producto.split('-');
+        return partes.length >= 2 ? partes[1].trim() : partes[0].trim();
+    }
+
+    // Solicitud de métrica de tiempo para productos no registrados
+    const handleSolicitarTiempo = async (e: React.MouseEvent, row: any) => {
+        e.stopPropagation();
+        const rowId = row.op || row.producto;
+
+        // Evitar múltiples ejecuciones si ya está procesando o si ya fue solicitado
+        if (solicitandoId === rowId || solicitados[rowId] || peticionesBD[row.op] || peticionesBD[row.producto]) return;
+
+        setSolicitandoId(rowId)
+
+        const modeloExtraido = extraerModelo(row.producto);
+
+        try {
+            const res = await fetch('/api/productos/peticiones', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    op: row.op,
+                    modelo: modeloExtraido,
+                    codigo: row.producto,              // codigo = producto
+                    nombre_secundario: row.nombre,    // nombre_secundario = nombre
+                })
+            })
+
+            const data = await res.json()
+
+            if (res.ok && data.success) {
+                setSolicitados(prev => ({ ...prev, [rowId]: true }))
+                // Actualizamos también el mapa de la BD para persistir el bloqueo sin recargar
+                setPeticionesBD(prev => ({ 
+                    ...prev, 
+                    [row.producto]: true,
+                    ...(row.op ? { [row.op]: true } : {})
+                }))
+                setModal({
+                    isOpen: true,
+                    type: 'success',
+                    message: data.message || `Solicitud enviada exitosamente para el modelo "${modeloExtraido}". Se notificó a gestión de tiempos.`
+                })
+            } else {
+                setModal({
+                    isOpen: true,
+                    type: 'error',
+                    message: data.message || 'No se pudo registrar la solicitud de tiempo.'
+                })
+            }
+        } catch (error) {
+            setModal({
+                isOpen: true,
+                type: 'error',
+                message: 'Error de comunicación al solicitar tiempo.'
+            })
+        } finally {
+            setSolicitandoId(null)
+        }
+    }
 
     const columns = [
         {
@@ -113,12 +204,45 @@ export default function OrdenesCortadasPage() {
                 const tiempoUnidadSegundos = Number(row.tiempo_base) || 0;
                 const tiempoTotalSegundos = row.cantidad * tiempoUnidadSegundos;
                 
-                // Convertimos a minutos para la vista y validación
                 const tiempoTotalMinutos = Math.ceil(tiempoTotalSegundos / 60);
                 const excedeTurno = tiempoTotalMinutos > 480;
+                const rowId = row.op || row.producto;
 
+                // VERIFICACIÓN: Revisa el estado local, las peticiones obtenidas de BD y peticiones del backend
+                const tienePeticionEnBD = peticionesBD[row.producto] || (row.op && peticionesBD[row.op]);
+                const estaSolicitado = solicitados[rowId] || tienePeticionEnBD || row.peticion_pendiente;
+
+                // SI NO TIENE TIEMPO ASIGNADO, MOSTRAR BOTÓN DE SOLICITAR O ESTATUS PENDIENTE
                 if (!tiempoUnidadSegundos) {
-                    return <span className="text-gray-400 text-xs italic">Sin métrica</span>;
+                    return (
+                        <div className="flex flex-col items-start gap-1">
+                            <span className="text-amber-600 text-xs italic font-medium">Sin métrica</span>
+                            {estaSolicitado ? (
+                                <span className="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold rounded-lg flex items-center gap-1">
+                                    <Icon icon="lucide:clock" className="animate-spin text-xs" />
+                                    Solicitud Pendiente
+                                </span>
+                            ) : (
+                                <button
+                                    onClick={(e) => handleSolicitarTiempo(e, row)}
+                                    disabled={solicitandoId === rowId}
+                                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+                                >
+                                    {solicitandoId === rowId ? (
+                                        <>
+                                            <Icon icon="lucide:loader-2" className="animate-spin text-sm" />
+                                            Enviando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Icon icon="lucide:timer" className="text-sm" />
+                                            Solicitar tiempo
+                                        </>
+                                    )}
+                                </button>
+                            )}
+                        </div>
+                    );
                 }
 
                 return (

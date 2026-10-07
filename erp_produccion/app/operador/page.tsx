@@ -7,7 +7,7 @@ export default function OperadorPage() {
     const [user, setUser] = useState<any>(null)
     const [asignacion, setAsignacion] = useState<any | null>(null)
     const [mostrarAlerta, setMostrarAlerta] = useState(false)
-    const [segundos, setSegundos] = useState(0)
+    const [segundos, setSegundos] = useState<number>(0)
     const [costuraActiva, setCosturaActiva] = useState(false)
     const [loadingTerminar, setLoadingTerminar] = useState(false)
 
@@ -34,14 +34,22 @@ export default function OperadorPage() {
         obtenerUsuario()
     }, [])
 
-    // 2. Buscamos las asignaciones cuando tenemos el id del operador
+    // 2. AUTO-REFRESH: Carga inicial y polling cada 10 segundos si no hay costura activa
     useEffect(() => {
-        if (user && user.id) {
-            cargarAsignacionPendiente(user.id)
-        }
-    }, [user])
+        if (!user?.id) return
 
-    // 3. Evaluar el producto asignado (extraer su 2º string) para buscar el manual
+        cargarAsignacionPendiente(user.id)
+
+        const interval = setInterval(() => {
+            if (!costuraActiva) {
+                cargarAsignacionPendiente(user.id)
+            }
+        }, 10000)
+
+        return () => clearInterval(interval)
+    }, [user, costuraActiva])
+
+    // 3. Evaluar el producto asignado para buscar su manual
     useEffect(() => {
         const codigoProducto = asignacion?.producto || asignacion?.nombre
 
@@ -81,23 +89,25 @@ export default function OperadorPage() {
             
             if (data.success && data.asignaciones.length > 0) {
                 const nuevaAsignacion = data.asignaciones[0]
-                setAsignacion(nuevaAsignacion)
                 
-                // Extraer el tiempo de la tabla productos_tiempos (asumiendo que viene en segundos o se usa directamente como segundos iniciales por pieza)
-                const tiempoBaseSegundos = Number(nuevaAsignacion.tiempo_base) || 0
-                const tiempoTotalObj = tiempoBaseSegundos * Number(nuevaAsignacion.cantidad_asignada)
+                // Con tipación explícita para evitar 'implicitAny'
+                setAsignacion((prev: any) => {
+                    if (prev?.id !== nuevaAsignacion.id) {
+                        return nuevaAsignacion
+                    }
+                    return prev
+                })
 
+                // Verificamos si la tarea ya había iniciado anteriormente
                 const inicioGuardado = localStorage.getItem(`costura_inicio_${nuevaAsignacion.id}`)
                 if (inicioGuardado) {
                     const transcurrido = Math.floor((Date.now() - Number(inicioGuardado)) / 1000)
-                    let restante = tiempoTotalObj - transcurrido
-                    if (restante < 0) restante = 0
                     
-                    setSegundos(restante)
+                    setSegundos(transcurrido)
                     setCosturaActiva(true)
                     setMostrarAlerta(false)
                 } else {
-                    setSegundos(tiempoTotalObj)
+                    setSegundos(0)
                     setMostrarAlerta(true)
                 }
             } else {
@@ -109,18 +119,22 @@ export default function OperadorPage() {
         }
     }
 
+    // 4. Temporizador de CONTEO PROGRESIVO (+1 segundo)
     useEffect(() => {
-        let intervalo: any = null
+        let intervalo: ReturnType<typeof setInterval> | null = null
         if (costuraActiva) {
-            // Cuenta regresiva
-            intervalo = setInterval(() => setSegundos(prev => (prev > 0 ? prev - 1 : 0)), 1000)
+            // Con tipación explícita para evitar 'implicitAny'
+            intervalo = setInterval(() => setSegundos((prev: number) => prev + 1), 1000)
         } else {
-            clearInterval(intervalo)
+            if (intervalo) clearInterval(intervalo)
         }
-        return () => clearInterval(intervalo)
+        return () => {
+            if (intervalo) clearInterval(intervalo)
+        }
     }, [costuraActiva])
 
     const iniciarCostura = async () => {
+        if (!asignacion) return
         try {
             const res = await fetch('/api/operador/costura/iniciar', {
                 method: 'POST',
@@ -130,6 +144,7 @@ export default function OperadorPage() {
             const data = await res.json()
             if (data.success) {
                 localStorage.setItem(`costura_inicio_${asignacion.id}`, Date.now().toString())
+                setSegundos(0)
                 setCosturaActiva(true)
             }
         } catch (error) {
@@ -137,7 +152,7 @@ export default function OperadorPage() {
         }
     }
 
-    // Función para Almacenar/Terminar la orden
+    // Función para terminar la orden y registrar el tiempo transcurrido
     const terminarCostura = async () => {
         if (!asignacion) return
         setLoadingTerminar(true)
@@ -145,7 +160,11 @@ export default function OperadorPage() {
         try {
             const fechaFinActual = new Date().toISOString()
 
-            // Intenta guardar enviando a tu endpoint principal o al de operador
+            const inicioGuardado = localStorage.getItem(`costura_inicio_${asignacion.id}`)
+            const tiempoTranscurridoFinal = inicioGuardado 
+                ? Math.floor((Date.now() - Number(inicioGuardado)) / 1000) 
+                : segundos
+
             const res = await fetch('/api/costura-tiempos/terminar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -153,7 +172,7 @@ export default function OperadorPage() {
                     id_asignacion: asignacion.id,
                     asignacion_id: asignacion.id,
                     fecha_fin: fechaFinActual,
-                    tiempo_segundos: segundos,
+                    tiempo_segundos: tiempoTranscurridoFinal,
                     tipo: 'operador'
                 })
             })
@@ -161,14 +180,12 @@ export default function OperadorPage() {
             const data = await res.json()
 
             if (res.ok && data.success) {
-                // Limpia el contador local
                 localStorage.removeItem(`costura_inicio_${asignacion.id}`)
                 setCosturaActiva(false)
                 setSegundos(0)
                 setAsignacion(null)
                 setManual(null)
 
-                // Carga la siguiente asignación pendiente si la hay
                 if (user && user.id) {
                     cargarAsignacionPendiente(user.id)
                 }
@@ -183,10 +200,12 @@ export default function OperadorPage() {
         }
     }
 
+    // Formateador de tiempo a HH:MM:SS o MM:SS
     const formatTiempo = (seg: number) => {
-        const m = Math.floor(seg / 60).toString().padStart(2, '0')
+        const h = Math.floor(seg / 3600)
+        const m = Math.floor((seg % 3600) / 60).toString().padStart(2, '0')
         const s = (seg % 60).toString().padStart(2, '0')
-        return `${m}:${s}`
+        return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`
     }
 
     if (!user) {
@@ -202,6 +221,7 @@ export default function OperadorPage() {
             <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                 <Icon icon="lucide:check-circle-2" className="text-6xl mb-4 text-slate-300" />
                 <p>No tienes asignaciones pendientes en este momento.</p>
+                <p className="text-xs text-slate-400 mt-2">Buscando nuevas tareas automáticamente...</p>
             </div>
         )
     }
@@ -268,8 +288,8 @@ export default function OperadorPage() {
                                 <p className="text-lg font-bold text-blue-600">{asignacion.cantidad_asignada}</p>
                             </div>
 
-                            <div className="bg-slate-50 px-4 py-2 rounded-xl border border-slate-200/60 text-center min-w-[90px]">
-                                <p className="text-[10px] uppercase font-semibold text-slate-400">Tiempo</p>
+                            <div className="bg-slate-50 px-4 py-2 rounded-xl border border-slate-200/60 text-center min-w-[100px]">
+                                <p className="text-[10px] uppercase font-semibold text-slate-400">Tiempo Transcurrido</p>
                                 <p className="text-lg font-mono font-bold text-slate-800">{formatTiempo(segundos)}</p>
                             </div>
 

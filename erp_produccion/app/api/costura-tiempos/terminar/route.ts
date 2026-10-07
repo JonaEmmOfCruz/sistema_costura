@@ -4,7 +4,7 @@ import { pool } from "@/lib/db";
 export async function POST(req: Request) {
     try {
         const body = await req.json()
-        const { id_asignacion, op, id_operador, tipo } = body 
+        const { id_asignacion, op, tipo, tiempo_segundos, fecha_fin } = body 
 
         if (!id_asignacion && !op) {
             return NextResponse.json({ success: false, message: 'Falta información de la asignación' }, { status: 400 })
@@ -13,12 +13,12 @@ export async function POST(req: Request) {
         if (tipo === 'corte') {
             await pool.query(
                 `UPDATE admin_costura_cortes 
-                 SET fecha_fin = NOW(), estatus = 'TERMINADO' 
+                 SET fecha_fin = COALESCE(?, NOW()), estatus = 'TERMINADO' 
                  WHERE id = ?`,
-                [id_asignacion]
+                [fecha_fin || null, id_asignacion]
             )
         } else {
-            // 1. Marcamos como TERMINADO en la tabla de asignaciones
+            // 1. Marcar como TERMINADO en la tabla de asignaciones
             if (id_asignacion) {
                 await pool.query(
                     `UPDATE admin_costura_asignaciones 
@@ -28,20 +28,22 @@ export async function POST(req: Request) {
                 )
             }
 
-            // 2. Cerramos el registro de tiempo pendiente en operador_tiempos_costura por OP o por ID activo
+            // 2. Guardar fecha de fin y los segundos en operador_tiempos_costura
+            const fechaFinFinal = fecha_fin ? new Date(fecha_fin) : new Date();
+
             if (op) {
                 await pool.query(
                     `UPDATE operador_tiempos_costura 
-                     SET fecha_fin = NOW() 
+                     SET fecha_fin = ?, tiempo_segundos = ? 
                      WHERE op = ? AND fecha_fin IS NULL`,
-                    [op]
+                    [fechaFinFinal, tiempo_segundos || 0, op]
                 )
-            } else {
+            } else if (id_asignacion) {
                 await pool.query(
                     `UPDATE operador_tiempos_costura 
-                     SET fecha_fin = NOW() 
+                     SET fecha_fin = ?, tiempo_segundos = ? 
                      WHERE id = ?`,
-                    [id_asignacion]
+                    [fechaFinFinal, tiempo_segundos || 0, id_asignacion]
                 )
             }
         }
@@ -49,6 +51,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ success: true, message: 'Registro terminado con éxito' })
     } catch (error: any) {
         console.error("Error al terminar orden:", error)
-        return NextResponse.json({ success: false, message: 'Error interno del servidor' }, { status: 500 })
+        return NextResponse.json({ success: false, message: 'Error interno del servidor', error: error.message }, { status: 500 })
     }
 }
