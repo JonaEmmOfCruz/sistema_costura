@@ -20,6 +20,9 @@ const autoAssignPaths = new Set([
   '/api/operador/costura/finalizar',
   '/api/costura-tiempos/terminar',
 ])
+const notifyOnlyPaths = new Set([
+  '/api/admin_costura/auto_asignar',
+])
 const readOnlyPostPaths = new Set([
   '/api/reportes/dinamicos',
   '/api/productos/buscar_modelo',
@@ -42,6 +45,11 @@ const httpServer = createServer((request, response) => {
 
       const notifyClients = () => {
         io.emit('data:changed', { path: pathname, method })
+      }
+
+      if (notifyOnlyPaths.has(pathname)) {
+        notifyClients()
+        return
       }
 
       if (autoAssignPaths.has(pathname)) {

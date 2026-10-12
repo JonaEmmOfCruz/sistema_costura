@@ -3,24 +3,27 @@ import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import useLatestRequest from "@/lib/useLatestRequest"
 
 export default function AdminCosturaPapeleraPage() {
     const [loading, setLoading] = useState(false)
     const [ordenes, setOrdenes] = useState<any[]>([])
+    const isLatestRequest = useLatestRequest()
 
     // Cargar órdenes desde la papelera[cite: 10, 11]
     const cargarOrdenesPapelera = async () => {
+        const esUltimaSolicitud = isLatestRequest()
         setLoading(true)
         try {
-            const res = await fetch('/api/admin_costura/papelera')
+            const res = await fetch('/api/admin_costura/papelera', { cache: 'no-store' })
             const data = await res.json()
-            if (data.success) {
+            if (esUltimaSolicitud() && data.success) {
                 setOrdenes(data.ordenes)
             }
         } catch (error) {
             console.error("Error al cargar papelera:", error)
         } finally {
-            setLoading(false)
+            if (esUltimaSolicitud()) setLoading(false)
         }
     }
 
@@ -39,9 +42,8 @@ export default function AdminCosturaPapeleraPage() {
                 body: JSON.stringify({ id })
             })
             const data = await res.json()
-            if (data.success) {
-                // Removemos la orden restaurada de la lista local de la papelera
-                setOrdenes(prevOrdenes => prevOrdenes.filter(o => o.id !== id))
+            if (res.ok && data.success) {
+                await cargarOrdenesPapelera()
             } else {
                 alert(data.message || "Error al restaurar la orden")
             }

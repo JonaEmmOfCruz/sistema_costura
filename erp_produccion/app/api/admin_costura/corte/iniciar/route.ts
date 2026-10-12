@@ -1,5 +1,24 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { RowDataPacket } from 'mysql2'
+
+interface OrdenCosturaRow extends RowDataPacket {
+    id: number
+    rq: string | null
+    op: string | null
+    producto: string | null
+    nombre: string | null
+    cantidad: number | null
+}
+
+interface OrdenEnEsperaRow extends RowDataPacket {
+    orden_id: number
+}
+
+interface CorteExistenteRow extends RowDataPacket {
+    id: number
+}
+
 export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
     try {
@@ -16,8 +35,8 @@ export async function POST(request: Request) {
             await connection.beginTransaction()
 
             // 1. Obtener la información de la orden activa original
-            const [rows]: any = await connection.query(
-                'SELECT * FROM admin_costura_ordenes WHERE id = ?',
+            const [rows] = await connection.query<OrdenCosturaRow[]>(
+                'SELECT * FROM admin_costura_ordenes WHERE id = ? FOR UPDATE',
                 [orden_id]
             )
 
@@ -28,8 +47,22 @@ export async function POST(request: Request) {
 
             const orden = rows[0];
 
+            const [ordenesEnEspera] = await connection.query<OrdenEnEsperaRow[]>(
+                'SELECT orden_id FROM admin_costura_ordenes_espera WHERE orden_id = ? FOR UPDATE',
+                [orden_id]
+            )
+
+            if (ordenesEnEspera.length > 0) {
+                await connection.rollback()
+                connection.release()
+                return NextResponse.json(
+                    { success: false, message: 'La OP está en espera y debe reanudarse antes de iniciar el corte' },
+                    { status: 409 }
+                )
+            }
+
             // 2. Registrar o actualizar en la tabla de cortes con estatus 'corte en proceso' y fecha de inicio
-            const [existingCorte]: any = await connection.query(
+            const [existingCorte] = await connection.query<CorteExistenteRow[]>(
                 'SELECT id FROM admin_costura_cortes WHERE orden_id = ?',
                 [orden_id]
             )

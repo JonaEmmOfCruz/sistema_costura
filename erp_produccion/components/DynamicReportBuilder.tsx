@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, AreaChart, Area } from 'recharts'
 import { Icon } from '@iconify/react'
 import useRealtimeRefresh from '@/lib/useRealtimeRefresh'
+import useLatestRequest from '@/lib/useLatestRequest'
 
 const BI_COLORS = ['#118DFF', '#12239E', '#E66C37', '#6B007B', '#E044A7', '#744EC2', '#D9B300', '#D64550']
 
@@ -25,6 +26,7 @@ export default function DynamicReportBuilder() {
     const [tipoGrafica, setTipoGrafica] = useState<'bar' | 'line' | 'area' | 'pie'>('bar')
     const [datosGrafica, setDatosGrafica] = useState<any[]>([])
     const [cargando, setCargando] = useState(false)
+    const isLatestRequest = useLatestRequest()
 
     // NUEVO: Estados para los filtros de fecha
     const [fechaInicio, setFechaInicio] = useState('')
@@ -87,6 +89,7 @@ export default function DynamicReportBuilder() {
     const generarResultados = async () => {
         if (!ejeX || ejeY.length === 0) return
 
+        const esUltimaSolicitud = isLatestRequest()
         setCargando(true)
         try {
             const res = await fetch('/api/reportes/dinamicos', {
@@ -102,6 +105,7 @@ export default function DynamicReportBuilder() {
                 })
             })
             const data = await res.json()
+            if (!esUltimaSolicitud()) return
             if (data.success) {
                 const procesados = data.data.map((item: any) => {
                     let obj: any = { label: String(item.label) }
@@ -115,7 +119,7 @@ export default function DynamicReportBuilder() {
         } catch (error) {
             console.error("Error al generar gráfica:", error)
         } finally {
-            setCargando(false)
+            if (esUltimaSolicitud()) setCargando(false)
         }
     }
 

@@ -3,11 +3,13 @@ import UserStatsGrid from "@/components/UserStatsGrid"
 import DynamicReportBuilder from "@/components/DynamicReportBuilder"
 import { useEffect, useState } from "react"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import useLatestRequest from "@/lib/useLatestRequest"
 
 export default function AdminDashboard() {
     const [user, setUser] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [stats, setStats] = useState<any>(null)
+    const isLatestRequest = useLatestRequest()
 
     useEffect(() => {
         async function fetchUserData() {
@@ -27,10 +29,11 @@ export default function AdminDashboard() {
     }, [])
 
     const fetchStats = async () => {
+        const esUltimaSolicitud = isLatestRequest()
         try {
             const res = await fetch('/api/usuarios/stats', { cache: 'no-store' })
             const data = await res.json()
-            if (res.ok && data.success) {
+            if (esUltimaSolicitud() && res.ok && data.success) {
                 setStats(data.stats)
             }
         } catch (error) {

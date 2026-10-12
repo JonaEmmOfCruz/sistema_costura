@@ -12,13 +12,28 @@ export async function GET() {
             FROM admin_costura_ordenes o
             LEFT JOIN admin_costura_cortes c ON o.id = c.orden_id
             LEFT JOIN productos_tiempos pt ON o.producto = pt.codigo
-            WHERE c.estatus IS NULL OR c.estatus = 'corte en proceso'
+            LEFT JOIN admin_costura_ordenes_espera e ON e.orden_id = o.id
+            WHERE e.orden_id IS NULL
+              AND (c.estatus IS NULL OR c.estatus = 'corte en proceso')
             ORDER BY o.id ASC
+        `)
+
+        const [enEspera] = await pool.query<RowDataPacket[]>(`
+            SELECT
+                o.*,
+                e.motivo AS motivo_espera,
+                e.fecha_espera,
+                pt.tiempo AS tiempo_base
+            FROM admin_costura_ordenes_espera e
+            INNER JOIN admin_costura_ordenes o ON o.id = e.orden_id
+            LEFT JOIN productos_tiempos pt ON o.producto = pt.codigo
+            ORDER BY e.fecha_espera ASC
         `)
 
         return NextResponse.json({
             success: true,
-            ordenes: rows
+            ordenes: rows,
+            en_espera: enEspera
         })
     } catch (error) {
         console.error('Error al obtener las ordenes de produccion', error)

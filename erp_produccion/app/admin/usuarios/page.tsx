@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import UserRegistrationForm from "@/components/UserRegistrationForm"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import useLatestRequest from "@/lib/useLatestRequest"
 
 export default function AdminRegisterUser() {
     const [loading, setLoading] = useState(true)
@@ -13,19 +14,21 @@ export default function AdminRegisterUser() {
     const [selectedUser, setSelectedUser] = useState<any | null>(null)
     const [isEditModalOpen, setIsEditModalOpen] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
+    const isLatestRequest = useLatestRequest()
 
     // Cargar usuarios
     const fetchUsers = () => {
+        const esUltimaSolicitud = isLatestRequest()
         setLoading(true)
-        fetch('/api/usuarios')
+        return fetch('/api/usuarios', { cache: 'no-store' })
             .then(res => res.json())
             .then(data => {
-                if (data.success) setUsers(data.user)
-                setLoading(false)
+                if (esUltimaSolicitud() && data.success) setUsers(data.user)
+                if (esUltimaSolicitud()) setLoading(false)
             })
             .catch(err => {
                 console.error("Error al cargar usuarios:", err)
-                setLoading(false)
+                if (esUltimaSolicitud()) setLoading(false)
             })
     }
 
@@ -47,7 +50,7 @@ export default function AdminRegisterUser() {
             const data = await res.json()
 
             if (res.ok && data.success) {
-                setUsers(prev => prev.filter((u: any) => u.id !== userId && u._id !== userId))
+                await fetchUsers()
                 alert("Usuario eliminado correctamente")
             } else {
                 alert(data.message || "Error al eliminar el usuario")

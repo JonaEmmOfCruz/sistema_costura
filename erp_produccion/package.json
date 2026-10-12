@@ -10,8 +10,11 @@
   },
   "dependencies": {
     "@iconify/react": "^6.0.2",
+    "exceljs": "^4.4.0",
     "jose": "^6.2.8",
     "jsonwebtoken": "^9.0.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "mysql2": "^3.23.2",
     "next": "16.3.0",
     "react": "19.2.8",

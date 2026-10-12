@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import ReusableTable from "@/components/ReusableTable"
 import { Icon } from "@iconify/react"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import useLatestRequest from "@/lib/useLatestRequest"
 
 // Lista de prefijos prioritarios
 const PREFIJOS_PRIORITARIOS = [
@@ -39,8 +40,10 @@ export default function OrdenesCortadasPage() {
 
     // Mapa para registrar las peticiones pendientes consultadas en la BD
     const [peticionesBD, setPeticionesBD] = useState<Record<string, boolean>>({})
+    const isLatestRequest = useLatestRequest()
 
     const cargarOrdenesCortadas = async (mostrarCarga = true) => {
+        const esUltimaSolicitud = isLatestRequest()
         try {
             // Consultamos en paralelo las órdenes cortadas y las peticiones pendientes registradas en DB
             const [resCortadas, resPeticiones] = await Promise.all([
@@ -48,14 +51,14 @@ export default function OrdenesCortadasPage() {
                 fetch('/api/productos/peticiones', { cache: 'no-store' })
             ])
 
-            if (resCortadas.ok) {
+            if (esUltimaSolicitud() && resCortadas.ok) {
                 const dataCortadas = await resCortadas.json()
                 if (dataCortadas.success) {
                     setOrdenesCortadas(dataCortadas.ordenes || [])
                 }
             }
 
-            if (resPeticiones.ok) {
+            if (esUltimaSolicitud() && resPeticiones.ok) {
                 const dataPeticiones = await resPeticiones.json()
                 if (dataPeticiones.success && Array.isArray(dataPeticiones.peticiones)) {
                     const mapaPeticiones: Record<string, boolean> = {}
@@ -70,7 +73,7 @@ export default function OrdenesCortadasPage() {
         } catch (error) {
             console.error("Error al cargar órdenes o peticiones:", error)
         } finally {
-            if (mostrarCarga) setLoading(false)
+            if (mostrarCarga && esUltimaSolicitud()) setLoading(false)
         }
     }
 
@@ -100,6 +103,21 @@ export default function OrdenesCortadasPage() {
         if (!producto) return '';
         const partes = producto.split('-');
         return partes.length >= 2 ? partes[1].trim() : partes[0].trim();
+    }
+
+    const formatearTiempoEjecucion = (inicio: any, fin: any) => {
+        if (!inicio || !fin) return '-'
+
+        const inicioMs = new Date(inicio).getTime()
+        const finMs = new Date(fin).getTime()
+        if (!Number.isFinite(inicioMs) || !Number.isFinite(finMs) || finMs < inicioMs) return '-'
+
+        const segundos = Math.floor((finMs - inicioMs) / 1000)
+        const horas = Math.floor(segundos / 3600)
+        const minutos = Math.floor((segundos % 3600) / 60)
+        const segundosRestantes = segundos % 60
+
+        return `${horas}h ${minutos}m ${segundosRestantes}s`
     }
 
     // Solicitud de métrica de tiempo para productos no registrados
@@ -322,6 +340,10 @@ export default function OrdenesCortadasPage() {
         {
             header: 'Fin de Corte',
             accessorKey: (row: any) => row.fecha_fin ? new Date(row.fecha_fin).toLocaleString() : '-'
+        },
+        {
+            header: 'Tiempo de Ejecución',
+            accessorKey: (row: any) => formatearTiempoEjecucion(row.fecha_inicio, row.fecha_fin)
         }
     ]
 

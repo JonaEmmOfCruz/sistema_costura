@@ -20,6 +20,7 @@ export async function GET(request: Request) {
                 m.tipo AS manual_tipo,
                 m.nombre_original AS manual_nombre,
                 pt.tiempo AS tiempo_base,
+                COALESCE(pt.tiempo, 0) * a.cantidad_asignada AS tiempo_sugerido_segundos,
                 COALESCE(t.segundos_acumulados, 0) AS segundos_acumulados,
                 CAST(UNIX_TIMESTAMP(t.inicio_sesion) * 1000 AS UNSIGNED) AS inicio_sesion_ms
             FROM admin_costura_asignaciones a

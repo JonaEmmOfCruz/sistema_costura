@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import useLatestRequest from "@/lib/useLatestRequest"
 
 interface PeticionTiempo {
     id: number;
@@ -38,6 +39,7 @@ export default function SubirTiemposProductosPage() {
     // Filtros de tabla
     const [columnFilters, setColumnFilters] = useState<{ [key: string]: string[] }>({})
     const [activeFilterField, setActiveFilterField] = useState<string | null>(null)
+    const isLatestRequest = useLatestRequest()
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -92,23 +94,28 @@ export default function SubirTiemposProductosPage() {
     }
 
     const cargarProductos = () => {
+        const esUltimaSolicitud = isLatestRequest('productos')
         setLoading(true)
-        fetch('/api/productos/tiempos')
+        return fetch('/api/productos/tiempos', { cache: 'no-store' })
             .then(res => res.json())
             .then(data => {
-                if (data.success) setProductos(data.productos || [])
-                setLoading(false)
+                if (esUltimaSolicitud() && data.success) setProductos(data.productos || [])
+                if (esUltimaSolicitud()) setLoading(false)
             })
-            .catch(() => setLoading(false))
+            .catch((error) => {
+                console.error("Error al cargar productos:", error)
+                if (esUltimaSolicitud()) setLoading(false)
+            })
     }
 
     const cargarPeticiones = () => {
-        fetch('/api/productos/peticiones')
+        const esUltimaSolicitud = isLatestRequest('peticiones')
+        return fetch('/api/productos/peticiones', { cache: 'no-store' })
             .then(res => res.json())
             .then(data => {
-                if (data.success) setPeticiones(data.peticiones || [])
+                if (esUltimaSolicitud() && data.success) setPeticiones(data.peticiones || [])
             })
-            .catch(() => {})
+            .catch((error) => console.error("Error al cargar peticiones:", error))
     }
 
     useEffect(() => {
@@ -116,9 +123,8 @@ export default function SubirTiemposProductosPage() {
         cargarPeticiones()
     }, [])
 
-    useRealtimeRefresh(() => {
-        cargarProductos()
-        cargarPeticiones()
+    useRealtimeRefresh(async () => {
+        await Promise.all([cargarProductos(), cargarPeticiones()])
     })
 
     // FILTRADO AUTOMÁTICO: Oculta peticiones que ya tengan un tiempo registrado en la tabla de productos
@@ -140,6 +146,7 @@ export default function SubirTiemposProductosPage() {
 
     // BÚSQUEDA AUTOMÁTICA Y ANIMACIÓN AL SELECCIONAR UNA PETICIÓN
     const handleAsignarTiempoClick = async (peticion: PeticionTiempo) => {
+        const esUltimaBusqueda = isLatestRequest('buscarModelo')
         setPeticionSeleccionada(peticion)
         setBuscando(true)
         setStatus(null)
@@ -154,13 +161,24 @@ export default function SubirTiemposProductosPage() {
         })
 
         try {
-            const res = await fetch(`/api/productos/buscar_modelo?modelo=${encodeURIComponent(peticion.modelo)}`)
+            const params = new URLSearchParams({
+                modelo: peticion.modelo || '',
+                codigo: peticion.codigo || '',
+                nombre: peticion.nombre_secundario || ''
+            })
+            const res = await fetch(`/api/productos/buscar_modelo?${params.toString()}`, { cache: 'no-store' })
             const data = await res.json()
 
             await new Promise(r => setTimeout(r, 800));
 
+            if (!esUltimaBusqueda()) return
             if (data.success && data.coincidencia) {
                 const c = data.coincidencia;
+                const criterio = data.criterio === 'nombre'
+                    ? 'por nombre coincidente'
+                    : data.criterio === 'codigo'
+                        ? 'por código coincidente'
+                        : 'por pertenecer a la misma familia del producto'
                 setFormEditable({
                     modelo: peticion.modelo,
                     nombre: c.nombre || '',
@@ -171,18 +189,21 @@ export default function SubirTiemposProductosPage() {
                 })
                 setStatus({
                     type: 'success',
-                    message: `Información recuperada automáticamente del modelo "${peticion.modelo}". Puedes editarla antes de confirmar.`
+                    message: `Información recuperada ${criterio}. Se copiaron costura y tiempo desde "${c.codigo || c.modelo || peticion.modelo}". Puedes editarla antes de confirmar.`
                 })
             } else {
                 setStatus({
                     type: 'error',
-                    message: `No se encontraron tiempos registrados previamente para el modelo "${peticion.modelo}". Favor de capturarlos manualmente.`
+                    message: data.message || `No se encontraron productos con nombre coincidente ni de la misma familia de "${peticion.codigo}". Captura costura y tiempo manualmente.`
                 })
             }
         } catch (error) {
             console.error('Error buscando modelo:', error)
+            if (esUltimaBusqueda()) {
+                setStatus({ type: 'error', message: 'No se pudo buscar la información del producto. Intenta de nuevo.' })
+            }
         } finally {
-            setBuscando(false)
+            if (esUltimaBusqueda()) setBuscando(false)
         }
     }
 
@@ -479,7 +500,7 @@ export default function SubirTiemposProductosPage() {
                     <div className="p-8 bg-indigo-50/60 rounded-2xl border border-indigo-100 flex flex-col items-center justify-center space-y-3 animate-pulse">
                         <Icon icon="lucide:search" className="text-3xl text-indigo-600 animate-bounce" />
                         <p className="text-sm font-semibold text-indigo-900">
-                            Analizando y recuperando información del modelo "{peticionSeleccionada?.modelo}"...
+                            Analizando y recuperando información del modelo &quot;{peticionSeleccionada?.modelo}&quot;...
                         </p>
                         <p className="text-xs text-indigo-600">Buscando métricas de costura y tiempo en la base de datos.</p>
                     </div>
@@ -499,60 +520,60 @@ export default function SubirTiemposProductosPage() {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">Modelo</label>
+                                <label className="block text-xs font-medium text-gray-800 mb-1">Modelo</label>
                                 <input
                                     type="text"
                                     value={formEditable.modelo}
                                     onChange={e => setFormEditable({ ...formEditable, modelo: e.target.value })}
-                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm focus:outline-none focus:border-indigo-500"
+                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm text-gray-800 placeholder:text-gray-800 focus:outline-none focus:border-indigo-500"
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">Nombre</label>
+                                <label className="block text-xs font-medium text-gray-800 mb-1">Nombre</label>
                                 <input
                                     type="text"
                                     value={formEditable.nombre}
                                     onChange={e => setFormEditable({ ...formEditable, nombre: e.target.value })}
                                     placeholder="Ej. MODELO BASE COSTURA"
-                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm focus:outline-none focus:border-indigo-500"
+                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm text-gray-800 placeholder:text-gray-800 focus:outline-none focus:border-indigo-500"
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">Código (Producto)</label>
+                                <label className="block text-xs font-medium text-gray-800 mb-1">Código (Producto)</label>
                                 <input
                                     type="text"
                                     value={formEditable.codigo}
                                     onChange={e => setFormEditable({ ...formEditable, codigo: e.target.value })}
-                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm focus:outline-none focus:border-indigo-500"
+                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm text-gray-800 placeholder:text-gray-800 focus:outline-none focus:border-indigo-500"
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">Producto (Descripción)</label>
+                                <label className="block text-xs font-medium text-gray-800 mb-1">Producto (Descripción)</label>
                                 <input
                                     type="text"
                                     value={formEditable.nombre_secundario}
                                     onChange={e => setFormEditable({ ...formEditable, nombre_secundario: e.target.value })}
-                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm focus:outline-none focus:border-indigo-500"
+                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm text-gray-800 placeholder:text-gray-800 focus:outline-none focus:border-indigo-500"
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">Costura</label>
+                                <label className="block text-xs font-medium text-gray-800 mb-1">Costura</label>
                                 <input
                                     type="text"
                                     value={formEditable.costura}
                                     onChange={e => setFormEditable({ ...formEditable, costura: e.target.value })}
                                     placeholder="Ej. 1"
-                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm focus:outline-none focus:border-indigo-500"
+                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm text-gray-800 placeholder:text-gray-800 focus:outline-none focus:border-indigo-500"
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-gray-600 mb-1">Tiempo (segundos por unidad)</label>
+                                <label className="block text-xs font-medium text-gray-800 mb-1">Tiempo (segundos por unidad)</label>
                                 <input
                                     type="text"
                                     value={formEditable.tiempo}
                                     onChange={e => setFormEditable({ ...formEditable, tiempo: e.target.value })}
                                     placeholder="Ej. 120"
-                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm focus:outline-none focus:border-indigo-500"
+                                    className="w-full border border-gray-200 bg-white p-2.5 rounded-xl text-sm text-gray-800 placeholder:text-gray-800 focus:outline-none focus:border-indigo-500"
                                 />
                             </div>
                         </div>

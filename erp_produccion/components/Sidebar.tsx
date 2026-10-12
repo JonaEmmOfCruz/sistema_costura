@@ -72,6 +72,12 @@ export default function Sidebar({ isOpen, onToggleSidebar }: SidebarProps) {
             roles: ["Administrador"] // Opción exclusiva de administración
         },
         {
+            name: "Exportar datos",
+            href: "/admin/exportar",
+            icon: "lucide:download",
+            roles: ["Administrador"]
+        },
+        {
             name: "Ordenes",
             href: "/admin_costura/ordenes",
             icon: "lucide:file-spreadsheet",

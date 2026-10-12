@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Icon } from "@iconify/react"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import useLatestRequest from "@/lib/useLatestRequest"
 
 const PREFIJOS_PRIORITARIOS = [
     "103-070", "103-046", "202-070", "102-070", "102-020",
@@ -10,15 +11,23 @@ const PREFIJOS_PRIORITARIOS = [
     "202-110", "202-137", "101-002"
 ]
 
+const esOrdenPrioritaria = (asignacion: { producto?: string | null; nombre?: string | null } | null | undefined) => PREFIJOS_PRIORITARIOS.some((prefijo) =>
+    String(asignacion?.producto || '').trim().startsWith(prefijo) ||
+    String(asignacion?.nombre || '').trim().startsWith(prefijo)
+)
+
 export default function OperadorPage() {
     const [user, setUser] = useState<any>(null)
     const [asignacion, setAsignacion] = useState<any | null>(null)
     const [asignacionesBloqueadas, setAsignacionesBloqueadas] = useState<any[]>([])
     const [mostrarAlerta, setMostrarAlerta] = useState(false)
+    const [alertaCambioPrioritario, setAlertaCambioPrioritario] = useState(false)
     const [segundos, setSegundos] = useState<number>(0)
     const [costuraActiva, setCosturaActiva] = useState(false)
     const [loadingTerminar, setLoadingTerminar] = useState(false)
     const asignacionActivaId = useRef<number | null>(null)
+    const asignacionAnteriorRef = useRef<{ id: number; esPrioritaria: boolean } | null>(null)
+    const isLatestRequest = useLatestRequest()
 
     // Estado para almacenar los datos del manual encontrado
     const [manual, setManual] = useState<{
@@ -59,18 +68,19 @@ export default function OperadorPage() {
 
     // 3. Evaluar el producto asignado para buscar su manual
     useEffect(() => {
+        const esUltimaSolicitud = isLatestRequest('manual')
         const codigoProducto = asignacion?.producto || asignacion?.nombre
 
         if (!codigoProducto) {
             setManual(null)
             return
         }
-
         const buscarManualPorProducto = async () => {
             try {
-                const res = await fetch(`/api/manuales?codigo=${encodeURIComponent(codigoProducto)}`)
+                const res = await fetch(`/api/manuales?codigo=${encodeURIComponent(codigoProducto)}`, { cache: 'no-store' })
                 const data = await res.json()
 
+                if (!esUltimaSolicitud()) return
                 if (data.success && data.manuales && data.manuales.length > 0) {
                     const manualEncontrado = data.manuales[0]
                     setManual({
@@ -83,18 +93,21 @@ export default function OperadorPage() {
                 }
             } catch (error) {
                 console.error("Error al buscar el manual para el producto:", error)
-                setManual(null)
+                if (esUltimaSolicitud()) setManual(null)
             }
         }
 
         buscarManualPorProducto()
-    }, [asignacion?.producto, asignacion?.nombre])
+    }, [asignacion?.producto, asignacion?.nombre, isLatestRequest])
 
     const cargarAsignacionPendiente = async (idOperador: number) => {
+        const esUltimaSolicitud = isLatestRequest('asignacion')
         try {
             const res = await fetch(`/api/operador/asignaciones?id_operador=${idOperador}`, { cache: 'no-store' })
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const data = await res.json()
 
+            if (!esUltimaSolicitud()) return
             if (data.success && Array.isArray(data.asignaciones)) {
                 const activa = data.asignaciones.find((item: any) => item.estatus === 'asignado' || item.estatus == null) || null
                 const bloqueadas = data.asignaciones.filter((item: any) => item.estatus === 'pausado')
@@ -102,7 +115,16 @@ export default function OperadorPage() {
 
                 if (activa) {
                     const esNuevaAsignacion = asignacionActivaId.current !== activa.id
+                    const prioridadActual = esOrdenPrioritaria(activa)
+                    const asignacionAnterior = asignacionAnteriorRef.current
+                    const cambioAOrdenPrioritaria = Boolean(
+                        asignacionAnterior &&
+                        asignacionAnterior.id !== activa.id &&
+                        !asignacionAnterior.esPrioritaria &&
+                        prioridadActual
+                    )
                     asignacionActivaId.current = activa.id
+                    asignacionAnteriorRef.current = { id: activa.id, esPrioritaria: prioridadActual }
                     setAsignacion(activa)
 
                     const inicioSesion = Number(activa.inicio_sesion_ms) || 0
@@ -113,21 +135,26 @@ export default function OperadorPage() {
 
                     setSegundos(segundosAcumulados + segundosEnSesion)
                     setCosturaActiva(inicioSesion > 0)
-                    setMostrarAlerta(esNuevaAsignacion && inicioSesion === 0)
+                    setAlertaCambioPrioritario(cambioAOrdenPrioritaria)
+                    setMostrarAlerta(cambioAOrdenPrioritaria || (esNuevaAsignacion && inicioSesion === 0))
                 } else {
                     asignacionActivaId.current = null
+                    asignacionAnteriorRef.current = null
                     setAsignacion(null)
                     setCosturaActiva(false)
                     setSegundos(0)
                     setMostrarAlerta(false)
+                    setAlertaCambioPrioritario(false)
                 }
             } else {
                 setAsignacion(null)
                 setAsignacionesBloqueadas([])
                 asignacionActivaId.current = null
+                asignacionAnteriorRef.current = null
                 setCosturaActiva(false)
                 setSegundos(0)
                 setMostrarAlerta(false)
+                setAlertaCambioPrioritario(false)
             }
         } catch (error) {
             console.error("Error al cargar asignación:", error)
@@ -247,212 +274,205 @@ export default function OperadorPage() {
     const textoProducto = asignacion?.producto || asignacion?.nombre || ''
     const partesProducto = textoProducto.split('-')
     const codigoSegundoString = partesProducto.length >= 2 ? partesProducto[1].trim() : textoProducto.trim()
-    const asignacionEsPrioritaria = asignacion && PREFIJOS_PRIORITARIOS.some((prefijo) =>
-        String(asignacion.producto || '').trim().startsWith(prefijo) ||
-        String(asignacion.nombre || '').trim().startsWith(prefijo)
-    )
+    const asignacionEsPrioritaria = asignacion ? esOrdenPrioritaria(asignacion) : false
 
     return (
-        <div className="w-full min-h-[calc(100vh-4rem)] flex flex-col box-border bg-slate-50 p-4 gap-4">
-            {/* Modal de Nueva Asignación */}
+        <div className="min-h-[calc(100vh-4rem)] w-full box-border bg-slate-100 px-3 py-4 sm:px-6">
             {mostrarAlerta && asignacion && (
-                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center animate-in fade-in zoom-in duration-200">
-                        <div className="mx-auto w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mb-4">
-                            <Icon icon="lucide:bell" className="text-blue-600 text-xl" />
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm" role="alertdialog" aria-modal="true">
+                    <div className="w-full max-w-md animate-in fade-in zoom-in rounded-2xl bg-white p-6 text-center shadow-2xl">
+                        <div className={`mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl ${alertaCambioPrioritario ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                            <Icon icon={alertaCambioPrioritario ? "lucide:triangle-alert" : "lucide:bell"} className="text-2xl" />
                         </div>
-                        <h2 className="text-xl font-bold text-slate-800 mb-1">Nueva Orden Asignada</h2>
-                        <p className="text-slate-500 text-sm mb-6">Se te ha asignado una nueva tarea de costura.</p>
-                        
-                        <div className="bg-slate-50 rounded-xl p-4 mb-6 text-left border border-slate-100">
-                            <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">OP</p>
-                            <p className="font-medium text-slate-800 mb-3">{asignacion.op}</p>
-                            
-                            <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Producto</p>
-                            <p className="font-medium text-slate-800 mb-3">{asignacion.producto || asignacion.nombre}</p>
-                            
-                            <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Cantidad Asignada</p>
-                            <p className="font-medium text-blue-600 text-lg">{asignacion.cantidad_asignada} unidades</p>
+                        <p className={`mb-1 text-xs font-bold uppercase tracking-[0.18em] ${alertaCambioPrioritario ? 'text-red-600' : 'text-blue-600'}`}>
+                            {alertaCambioPrioritario ? 'Cambio de prioridad' : 'Nueva asignación'}
+                        </p>
+                        <h2 className="text-xl font-bold text-slate-900">
+                            {alertaCambioPrioritario ? 'Se activó una orden prioritaria' : 'Nueva orden asignada'}
+                        </h2>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                            {alertaCambioPrioritario
+                                ? 'La orden prioritaria pasa a ser tu tarea activa. Tu OP normal quedó pausada y su tiempo se guardó.'
+                                : 'Se te asignó una nueva tarea de costura.'}
+                        </p>
+
+                        <div className="my-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-left">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">OP activa</span>
+                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${alertaCambioPrioritario ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                                    {alertaCambioPrioritario ? 'Prioritaria' : 'Nueva'}
+                                </span>
+                            </div>
+                            <p className="mt-1 text-lg font-bold text-slate-900">{asignacion.op}</p>
+                            <p className="mt-1 text-sm text-slate-600">{asignacion.producto || asignacion.nombre}</p>
+                            <p className="mt-3 text-sm font-semibold text-slate-700">{asignacion.cantidad_asignada} unidades</p>
                         </div>
-                        
-                        <button 
+
+                        <button
                             onClick={() => setMostrarAlerta(false)}
-                            className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors"
+                            className={`w-full rounded-xl py-3 font-semibold text-white transition-colors ${alertaCambioPrioritario ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
                         >
-                            Aceptar y Ver Detalles
+                            Entendido, ver orden activa
                         </button>
                     </div>
                 </div>
             )}
 
-            {!mostrarAlerta && asignacion && (
-                <>
-                    {/* FILA SUPERIOR: Panel de Información */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col lg:flex-row items-stretch justify-between p-5 gap-4 w-full">
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-                                <Icon icon="lucide:scissors" className="text-xl" />
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-2 mb-0.5">
-                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded ${asignacionEsPrioritaria ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
-                                        {asignacionEsPrioritaria ? 'Orden prioritaria activa' : 'Tarea actual'}
-                                    </span>
-                                    <span className="text-xs text-slate-400 font-mono">OP: <strong className="text-slate-700">{asignacion.op}</strong></span>
-                                    <span className="text-xs text-slate-400 font-mono">RQ: <strong className="text-slate-700">{asignacion.rq}</strong></span>
+            <main className="mx-auto flex w-full max-w-5xl flex-col gap-3">
+                {asignacion && (
+                    <section aria-label="Orden activa" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                        <div className={`h-1.5 w-full ${asignacionEsPrioritaria ? 'bg-red-500' : 'bg-blue-600'}`} />
+                        <div className="flex flex-col gap-4 p-4 sm:p-5 xl:flex-row xl:items-center xl:justify-between">
+                            <div className="flex min-w-0 items-start gap-3">
+                                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${asignacionEsPrioritaria ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
+                                    <Icon icon="lucide:scissors" className="text-lg" />
                                 </div>
-                                <h2 className="text-base font-bold text-slate-800">{asignacion.producto || asignacion.nombre}</h2>
-                                <p className="text-xs text-slate-500">{asignacion.nombre}</p>
-                            </div>
-                        </div>
-
-                        <div className="flex items-center gap-4 justify-end border-t lg:border-t-0 pt-3 lg:pt-0 border-slate-100">
-                            <div className="bg-slate-50 px-4 py-2 rounded-xl border border-slate-200/60 text-center">
-                                <p className="text-[10px] uppercase font-semibold text-slate-400">Cantidad</p>
-                                <p className="text-lg font-bold text-blue-600">{asignacion.cantidad_asignada}</p>
-                            </div>
-
-                            <div className={`px-5 py-3 rounded-2xl border text-center min-w-[190px] ${costuraActiva ? 'bg-slate-950 border-slate-800 text-white shadow-lg shadow-slate-900/15' : 'bg-slate-50 border-slate-200/60 text-slate-700'}`}>
-                                <p className={`text-[10px] uppercase font-bold tracking-[0.18em] ${costuraActiva ? 'text-emerald-300' : 'text-slate-400'}`}>
-                                    {costuraActiva ? 'Cronómetro en marcha' : 'Tiempo acumulado'}
-                                </p>
-                                <p className={`text-3xl sm:text-4xl leading-none mt-1 font-mono font-bold tabular-nums ${costuraActiva ? 'text-white' : 'text-slate-700'}`}>
-                                    {formatTiempo(segundos)}
-                                </p>
+                                <div className="min-w-0 flex-1">
+                                    <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${asignacionEsPrioritaria ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                                            {asignacionEsPrioritaria ? 'OP prioritaria activa' : 'OP activa'}
+                                        </span>
+                                        <span className="text-xs font-mono text-slate-500">OP <strong className="text-slate-800">{asignacion.op}</strong></span>
+                                        <span className="text-xs font-mono text-slate-500">RQ <strong className="text-slate-800">{asignacion.rq}</strong></span>
+                                    </div>
+                                    <h1 className="truncate text-sm font-bold text-slate-900 sm:text-base">{asignacion.producto || asignacion.nombre}</h1>
+                                    {asignacion.nombre && asignacion.nombre !== asignacion.producto && (
+                                        <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">{asignacion.nombre}</p>
+                                    )}
+                                </div>
                             </div>
 
-                            <div>
+                            <div className="grid grid-cols-2 items-stretch gap-2 sm:flex sm:items-center">
+                                <div className="flex min-w-[86px] flex-col justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-center">
+                                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Cantidad</span>
+                                    <span className="text-lg font-bold text-blue-700">{asignacion.cantidad_asignada}</span>
+                                </div>
+                                <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-center text-slate-800 sm:min-w-[150px]">
+                                    <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-indigo-600">Tiempo sugerido</p>
+                                    <p className={`mt-0.5 font-mono font-bold leading-none tabular-nums text-indigo-950 ${Number(asignacion.tiempo_sugerido_segundos) > 0 ? 'text-xl sm:text-2xl' : 'text-xs'}`}>
+                                        {Number(asignacion.tiempo_sugerido_segundos) > 0
+                                            ? formatTiempo(Number(asignacion.tiempo_sugerido_segundos))
+                                            : 'Sin métrica'}
+                                    </p>
+                                </div>
+                                <div className={`col-span-2 rounded-xl border px-4 py-2 text-center sm:col-span-1 sm:min-w-[150px] ${costuraActiva ? 'border-slate-800 bg-slate-950 text-white' : 'border-slate-200 bg-white text-slate-800'}`}>
+                                    <p className={`text-[9px] font-bold uppercase tracking-[0.16em] ${costuraActiva ? 'text-emerald-300' : 'text-slate-400'}`}>
+                                        {costuraActiva ? 'Tiempo activo' : 'Tiempo acumulado'}
+                                    </p>
+                                    <p className="mt-0.5 font-mono text-3xl font-bold leading-none tabular-nums sm:text-4xl">{formatTiempo(segundos)}</p>
+                                </div>
                                 {!costuraActiva ? (
-                                    <button 
+                                    <button
                                         onClick={iniciarCostura}
-                                        className="px-6 py-3 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold transition-all shadow-md flex items-center gap-2 text-sm"
+                                        className="col-span-2 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 sm:col-span-1"
                                     >
-                                        <Icon icon="lucide:play" className="text-base" />
-                                        Iniciar
+                                        <Icon icon="lucide:play" /> Iniciar
                                     </button>
                                 ) : (
-                                    <button 
+                                    <button
                                         onClick={terminarCostura}
                                         disabled={loadingTerminar}
-                                        className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold transition-all shadow-md flex items-center gap-2 text-sm disabled:opacity-50"
+                                        className="col-span-2 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50 sm:col-span-1"
                                     >
-                                        {loadingTerminar ? (
-                                            <Icon icon="lucide:loader-2" className="text-base animate-spin" />
-                                        ) : (
-                                            <Icon icon="lucide:check-circle-2" className="text-base" />
-                                        )}
-                                        <span>Terminar</span>
+                                        {loadingTerminar ? <Icon icon="lucide:loader-2" className="animate-spin" /> : <Icon icon="lucide:check-circle-2" />}
+                                        Terminar
                                     </button>
                                 )}
                             </div>
                         </div>
-                    </div>
+                    </section>
+                )}
 
-                    {/* FILA INFERIOR: Visualización del Manual */}
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col w-full flex-1 min-h-[75vh]">
-                        <div className="border-b border-slate-100 px-6 py-3.5 flex items-center justify-between shrink-0 w-full">
-                            <h3 className="text-xs font-semibold text-slate-700 flex items-center gap-2">
-                                <Icon icon="lucide:file-text" className="text-blue-600 text-base" />
-                                Manual de Operación: <span className="text-slate-500 font-normal">{manual ? manual.nombre : 'Sin manual detectado'}</span>
-                            </h3>
+                {!asignacion && asignacionesBloqueadas.length > 0 && (
+                    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                        <Icon icon="lucide:clock-3" className="shrink-0 text-lg text-amber-600" />
+                        No tienes una OP activa en este momento. Tus órdenes pausadas conservan su tiempo acumulado.
+                    </div>
+                )}
+
+                {asignacionesBloqueadas.length > 0 && (
+                    <section aria-label="Órdenes pausadas" className="space-y-2">
+                        {asignacionesBloqueadas.map((bloqueada) => (
+                            <article key={bloqueada.id} className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-3 sm:px-4">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="flex min-w-0 items-center gap-3">
+                                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-white text-amber-700">
+                                            <Icon icon="lucide:lock-keyhole" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800">OP pausada</span>
+                                                <span className="text-xs font-mono text-slate-500">OP <strong className="text-slate-700">{bloqueada.op}</strong></span>
+                                            </div>
+                                            <p className="truncate text-sm font-semibold text-slate-800">{bloqueada.producto || bloqueada.nombre}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-4 border-t border-amber-200/70 pt-2 sm:justify-end sm:border-0 sm:pt-0">
+                                        <div className="text-right">
+                                            <p className="text-[9px] font-bold uppercase tracking-wider text-indigo-600">Sugerido</p>
+                                            <p className="font-mono text-sm font-bold tabular-nums text-indigo-950">
+                                                {Number(bloqueada.tiempo_sugerido_segundos) > 0
+                                                    ? formatTiempo(Number(bloqueada.tiempo_sugerido_segundos))
+                                                    : 'Sin métrica'}
+                                            </p>
+                                        </div>
+                                        <span className="text-xs text-slate-500">{bloqueada.cantidad_asignada} unidades</span>
+                                        <div className="text-right">
+                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-500">Tiempo guardado</p>
+                                            <p className="font-mono text-xl font-bold tabular-nums text-slate-800">{formatTiempo(Number(bloqueada.segundos_acumulados) || 0)}</p>
+                                        </div>
+                                        <Icon icon="lucide:timer-off" className="text-xl text-amber-600" />
+                                    </div>
+                                </div>
+                            </article>
+                        ))}
+                    </section>
+                )}
+
+                {asignacion && (
+                    <section aria-label="Manual de operación" className="flex min-h-[68vh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                        <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                            <h2 className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-700">
+                                <Icon icon="lucide:file-text" className="shrink-0 text-base text-blue-600" />
+                                <span className="shrink-0">Manual de Operación</span>
+                                <span className="truncate font-normal text-slate-500">{manual ? manual.nombre : 'Sin manual detectado'}</span>
+                            </h2>
                             {manual?.ruta && (
-                                <a 
-                                    href={manual.ruta} 
-                                    target="_blank" 
+                                <a
+                                    href={manual.ruta}
+                                    target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-lg transition-colors border border-blue-100"
+                                    className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 sm:self-auto"
                                 >
                                     <Icon icon="lucide:external-link" /> Pantalla completa
                                 </a>
                             )}
                         </div>
 
-                        <div className="p-4 flex flex-col bg-slate-50/50 w-full flex-1">
+                        <div className="flex flex-1 flex-col bg-slate-50/70 p-3 sm:p-4">
                             {manual?.ruta ? (
-                                <div className="bg-white rounded-xl overflow-auto border border-slate-200 w-full flex-1 min-h-[70vh] flex flex-col relative shadow-inner">
+                                <div className="flex min-h-[62vh] flex-1 flex-col overflow-auto rounded-xl border border-slate-200 bg-white shadow-inner">
                                     {manual.tipo?.includes('image') ? (
-                                        <div className="w-full h-full flex items-center justify-center p-4">
-                                            <img 
-                                                src={manual.ruta} 
-                                                alt="Manual de producción" 
-                                                className="w-full h-auto object-contain"
-                                            />
+                                        <div className="flex min-h-[62vh] w-full flex-1 items-center justify-center p-3 sm:p-5">
+                                            <img src={manual.ruta} alt="Manual de producción" className="h-auto max-h-full w-full object-contain" />
                                         </div>
                                     ) : (
-                                        <iframe 
-                                            src={`${manual.ruta}#view=FitH`} 
-                                            className="w-full h-full min-h-[75vh] border-0"
-                                            title="Manual PDF"
-                                        />
+                                        <iframe src={`${manual.ruta}#view=FitH`} className="min-h-[62vh] w-full flex-1 border-0" title="Manual PDF" />
                                     )}
                                 </div>
                             ) : (
-                                <div className="w-full h-[50vh] flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-xl bg-white p-6 text-center">
-                                    <Icon icon="lucide:file-question" className="text-4xl mb-2 text-slate-300" />
-                                    <p className="text-sm font-medium text-slate-600">No hay manual vinculado para este producto</p>
-                                    <p className="text-xs text-slate-400 mt-1">
-                                        No se encontró un archivo que coincida con la clave <strong>"{codigoSegundoString}"</strong> del producto.
+                                <div className="flex min-h-[62vh] flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white p-6 text-center">
+                                    <Icon icon="lucide:file-question" className="mb-3 text-4xl text-slate-300" />
+                                    <p className="text-sm font-semibold text-slate-700">No hay manual vinculado para este producto</p>
+                                    <p className="mt-1 text-xs text-slate-400">
+                                        No se encontró un archivo que coincida con la clave <strong>&quot;{codigoSegundoString}&quot;</strong> del producto.
                                     </p>
                                 </div>
                             )}
                         </div>
-                    </div>
-                </>
-            )}
-
-            {!mostrarAlerta && asignacionesBloqueadas.length > 0 && (
-                <section className="space-y-3">
-                    <div className="flex items-center gap-2 text-amber-800">
-                        <Icon icon="lucide:shield-alert" className="text-lg" />
-                        <h2 className="text-sm font-bold uppercase tracking-wider">Trabajo bloqueado temporalmente</h2>
-                    </div>
-                    <p className="text-xs text-slate-500">
-                        Esta OP normal quedó pausada mientras atiendes la orden prioritaria. Su tiempo está guardado y detenido; podrás reanudarlo cuando vuelva a estar activa.
-                    </p>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {asignacionesBloqueadas.map((bloqueada) => (
-                            <article
-                                key={bloqueada.id}
-                                className="relative overflow-hidden rounded-2xl border border-amber-300 bg-white shadow-sm"
-                            >
-                                <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,251,235,0.92),rgba(255,255,255,0.97))]" />
-                                <div className="relative p-5">
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div>
-                                            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-800">
-                                                <Icon icon="lucide:lock-keyhole" />
-                                                Bloqueada por prioridad
-                                            </span>
-                                            <h3 className="mt-3 text-xl font-bold text-slate-800">OP: {bloqueada.op}</h3>
-                                            <p className="mt-1 text-sm text-slate-600">{bloqueada.producto || bloqueada.nombre}</p>
-                                            <p className="text-xs text-slate-500">{bloqueada.nombre}</p>
-                                        </div>
-                                        <div className="shrink-0 rounded-xl border border-amber-200 bg-white/90 px-3 py-2 text-right">
-                                            <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Cantidad</p>
-                                            <p className="text-lg font-bold text-amber-700">{bloqueada.cantidad_asignada} u.</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-amber-200/80 bg-white/90 px-4 py-3">
-                                        <div>
-                                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Tiempo guardado</p>
-                                            <p className="mt-1 font-mono text-3xl font-bold tabular-nums text-slate-800">
-                                                {formatTiempo(Number(bloqueada.segundos_acumulados) || 0)}
-                                            </p>
-                                        </div>
-                                        <Icon icon="lucide:timer-off" className="text-3xl text-amber-500" />
-                                    </div>
-                                    <p className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-amber-800">
-                                        <Icon icon="lucide:pause-circle" />
-                                        Temporizador detenido mientras está pausada
-                                    </p>
-                                </div>
-                            </article>
-                        ))}
-                    </div>
-                </section>
-            )}
+                    </section>
+                )}
+            </main>
         </div>
     )
 }

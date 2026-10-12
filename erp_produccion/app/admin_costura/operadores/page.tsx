@@ -2,23 +2,29 @@
 import { useEffect, useState } from "react"
 import AreaCard from "@/components/AreaCard"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import useLatestRequest from "@/lib/useLatestRequest"
 
 export default function OperadoresPage() {
     const [loading, setLoading] = useState(true)
     const [operadores, setOperadores] = useState<any[]>([])
     const [asignadas, setAsignadas] = useState([])
+    const isLatestRequest = useLatestRequest()
 
     const cargarOperadores = async () => {
+        const esUltimaSolicitud = isLatestRequest('operadores')
         try {
             const res = await fetch('/api/operadores', { cache: 'no-store' })
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const data = await res.json()
-            if (data.success) {
+            if (esUltimaSolicitud() && data.success) {
                 setOperadores(data.usuarios)
             }
         } catch (error) {
             console.error("Error al cargar operadores:", error)
         } finally {
-            setLoading(false)
+            if (esUltimaSolicitud()) {
+                setLoading(false)
+            }
         }
     }
 
@@ -34,9 +40,8 @@ export default function OperadoresPage() {
                 body: JSON.stringify({ id })
             })
             const data = await res.json()
-            if (data.success) {
-                // Recargamos la lista para reflejar el nuevo estado y el tiempo de expiración
-                cargarOperadores()
+            if (res.ok && data.success) {
+                await Promise.all([cargarOperadores(), cargarOrdenes(false)])
             } else {
                 alert(data.message || "Error al habilitar operador")
             }
@@ -53,8 +58,8 @@ export default function OperadoresPage() {
                 body: JSON.stringify({ id })
             })
             const data = await res.json()
-            if (data.success) {
-                cargarOperadores()
+            if (res.ok && data.success) {
+                await Promise.all([cargarOperadores(), cargarOrdenes(false)])
             } else {
                 alert(data.message || "Error al deshabilitar operador")
             }
@@ -64,17 +69,19 @@ export default function OperadoresPage() {
     }
 
     const cargarOrdenes = async (mostrarCarga = true) => {
+        const esUltimaSolicitud = isLatestRequest('asignaciones')
         if (mostrarCarga) setLoading(true)
         try {
             const res = await fetch('/api/admin_costura/asignadas', { cache: 'no-store' })
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const data = await res.json()
-            if (data.success) {
+            if (esUltimaSolicitud() && data.success) {
                 setAsignadas(data.asignadas)
             }
         } catch (error) {
             console.error("Error al cargar órdenes:", error)
         } finally {
-            if (mostrarCarga) setLoading(false)
+            if (mostrarCarga && esUltimaSolicitud()) setLoading(false)
         }
     }
 
@@ -95,9 +102,8 @@ export default function OperadoresPage() {
         void iniciar()
     }, [])
 
-    useRealtimeRefresh(() => {
-        void cargarOperadores()
-        void cargarOrdenes(false)
+    useRealtimeRefresh(async () => {
+        await Promise.all([cargarOperadores(), cargarOrdenes(false)])
     })
 
     if (loading) {

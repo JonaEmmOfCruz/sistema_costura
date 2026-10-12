@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import useLatestRequest from "@/lib/useLatestRequest"
 
 export default function SubirOrdenesPage() {
     const [file, setFile] = useState<File | null>(null)
@@ -21,6 +22,7 @@ export default function SubirOrdenesPage() {
     const [cortes, setCortes] = useState<any[]>([])
     const [tiempos, setTiempos] = useState<any[]>([])
     const [loadingModalData, setLoadingModalData] = useState(false)
+    const isLatestRequest = useLatestRequest()
 
     // Estados de filtros de FECHA EXCLUSIVOS por pestaña ({ field: string, date: string } | null)
     const [dateFilterAsignaciones, setDateFilterAsignaciones] = useState<{ field: string; date: string } | null>(null)
@@ -80,17 +82,18 @@ export default function SubirOrdenesPage() {
 
     // Cargar las órdenes principales
     const cargarOrdenesPrincipales = async () => {
+        const esUltimaSolicitud = isLatestRequest('ordenes')
         setLoading(true)
         try {
-            const res = await fetch('/api/admin_costura/ordenes')
+            const res = await fetch('/api/admin_costura/ordenes', { cache: 'no-store' })
             const data = await res.json()
-            if (data.success) {
+            if (esUltimaSolicitud() && data.success) {
                 setOrdenes(data.ordenes)
             }
         } catch (error) {
             console.error("Error al cargar órdenes:", error)
         } finally {
-            setLoading(false)
+            if (esUltimaSolicitud()) setLoading(false)
         }
     }
 
@@ -141,27 +144,33 @@ export default function SubirOrdenesPage() {
     ]
 
     // Cargar los datos del Modal
-    const handleOpenModal = () => {
+    const handleOpenModal = async () => {
+        const esUltimaSolicitud = isLatestRequest('modal')
         setIsModalOpen(true)
         setLoadingModalData(true)
 
-        Promise.all([
-            fetch('/api/costura-asignaciones').then(res => res.json()),
-            fetch('/api/costura-cortes').then(res => res.json()),
-            fetch('/api/costura-tiempos').then(res => res.json())
-        ])
-        .then(([dataAsignaciones, dataCortes, dataTiempos]) => {
+        try {
+            const [dataAsignaciones, dataCortes, dataTiempos] = await Promise.all([
+                fetch('/api/costura-asignaciones', { cache: 'no-store' }).then(res => res.json()),
+                fetch('/api/costura-cortes', { cache: 'no-store' }).then(res => res.json()),
+                fetch('/api/costura-tiempos', { cache: 'no-store' }).then(res => res.json())
+            ])
+
+            if (!esUltimaSolicitud()) return
             if (dataAsignaciones.success) setAsignaciones(dataAsignaciones.asignaciones)
             if (dataCortes.success) setCortes(dataCortes.cortes)
             if (dataTiempos.success) setTiempos(dataTiempos.tiempos)
-        })
-        .catch(err => console.error("Error al cargar datos del modal:", err))
-        .finally(() => setLoadingModalData(false))
+        } catch (error) {
+            console.error("Error al cargar datos del modal:", error)
+        } finally {
+            if (esUltimaSolicitud()) setLoadingModalData(false)
+        }
     }
 
-    useRealtimeRefresh(() => {
-        void cargarOrdenesPrincipales()
-        if (isModalOpen) handleOpenModal()
+    useRealtimeRefresh(async () => {
+        const refreshes = [cargarOrdenesPrincipales()]
+        if (isModalOpen) refreshes.push(handleOpenModal())
+        await Promise.all(refreshes)
     })
 
     // Componente reutilizable para Renderizar el Encabezado con Filtro de Fecha
@@ -230,7 +239,7 @@ export default function SubirOrdenesPage() {
     ]
 
     const formatSegundosAHMS = (segundos: number) => {
-        if (isNaN(segundos) || segundos <= 0) return '-'
+        if (isNaN(segundos) || segundos < 0) return '-'
         const h = Math.floor(segundos / 3600)
         const m = Math.floor((segundos % 3600) / 60)
         const s = segundos % 60
@@ -256,8 +265,42 @@ export default function SubirOrdenesPage() {
     // Función que muestra EXCLUSIVAMENTE el tiempo guardado por el temporizador
     const obtenerTiempoCosturaGuardado = (row: any) => {
         const segundosGuardados = Number(row.tiempo_segundos ?? row.tiempo ?? row.segundos)
-        if (isNaN(segundosGuardados) || segundosGuardados <= 0) return '-'
+        if (isNaN(segundosGuardados) || segundosGuardados < 0) return '-'
         return formatSegundosAHMS(segundosGuardados)
+    }
+
+    const obtenerObservacionTiempo = (row: any) => {
+        const sugerido = Number(row.tiempo_sugerido_segundos)
+        if (!Number.isFinite(sugerido) || sugerido <= 0) {
+            return (
+                <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                    Sin métrica
+                </span>
+            )
+        }
+
+        if (!row.fecha_fin || row.tiempo_segundos === null || row.tiempo_segundos === undefined) {
+            return (
+                <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                    En proceso
+                </span>
+            )
+        }
+
+        const diferencia = Number(row.tiempo_segundos) - sugerido
+        if (diferencia > 0) {
+            return (
+                <span className="inline-flex whitespace-nowrap rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+                    A destiempo · +{formatSegundosAHMS(diferencia)}
+                </span>
+            )
+        }
+
+        return (
+            <span className="inline-flex whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                {diferencia < 0 ? `A tiempo · ${formatSegundosAHMS(Math.abs(diferencia))} antes` : 'A tiempo'}
+            </span>
+        )
     }
 
     const cortesColumns = [
@@ -298,6 +341,16 @@ export default function SubirOrdenesPage() {
         { 
             header: <span className="uppercase text-xs font-bold text-gray-500">Tiempo de Costura</span>, 
             accessorKey: (row: any) => obtenerTiempoCosturaGuardado(row) 
+        },
+        {
+            header: <span className="uppercase text-xs font-bold text-gray-500">Tiempo sugerido</span>,
+            accessorKey: (row: any) => row.tiempo_sugerido_segundos == null
+                ? '-'
+                : formatSegundosAHMS(Number(row.tiempo_sugerido_segundos))
+        },
+        {
+            header: <span className="uppercase text-xs font-bold text-gray-500">Observación</span>,
+            accessorKey: (row: any) => obtenerObservacionTiempo(row)
         },
     ]
 

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import useLatestRequest from "@/lib/useLatestRequest"
 
 const PREFIJOS_PRIORITARIOS = [
     "103-070",
@@ -24,6 +25,8 @@ const PREFIJOS_PRIORITARIOS = [
     "202-137",
     "101-002"
 ];
+
+const MOTIVOS_ESPERA = ['No hay tela', 'Problema de calidad', 'Cambio de fecha'] as const
 
 const esPrioritario = (row: any) => {
     const textoProducto = String(row.producto || '').trim();
@@ -124,36 +127,47 @@ function AnimacionArmadoSilla() {
 export default function AdminCosturaOrdenesPage() {
     const [loading, setLoading] = useState(false)
     const [ordenes, setOrdenes] = useState<any[]>([])
+    const [ordenesEnEspera, setOrdenesEnEspera] = useState<any[]>([])
     const [ordenEnCorte, setOrdenEnCorte] = useState<any | null>(null)
+    const [ordenSeleccionadaEspera, setOrdenSeleccionadaEspera] = useState<number | null>(null)
+    const [motivoEspera, setMotivoEspera] = useState<(typeof MOTIVOS_ESPERA)[number] | ''>('')
+    const [actualizandoEsperaId, setActualizandoEsperaId] = useState<number | null>(null)
     const [segundosTranscurridos, setSegundosTranscurridos] = useState(0)
     const [temporizadorActivo, setTemporizadorActivo] = useState(false)
+    const isLatestRequest = useLatestRequest()
 
     const cargarOrdenes = async (mostrarCarga = true) => {
+        const esUltimaSolicitud = isLatestRequest()
         if (mostrarCarga) setLoading(true)
         try {
             const res = await fetch('/api/admin_costura/ordenes', { cache: 'no-store' })
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const data = await res.json()
-            if (data.success) {
+            if (esUltimaSolicitud() && data.success) {
                 setOrdenes(data.ordenes)
+                setOrdenesEnEspera(Array.isArray(data.en_espera) ? data.en_espera : [])
 
                 const enProceso = data.ordenes.find((o: any) => o.estado === 'corte en proceso')
-                if (enProceso) {
-                    setOrdenEnCorte(enProceso)
-                    setTemporizadorActivo(true)
+                setOrdenEnCorte(enProceso || null)
+                setTemporizadorActivo(Boolean(enProceso))
 
+                if (enProceso) {
                     const inicioGuardado = localStorage.getItem(`corte_inicio_${enProceso.id}`)
                     if (inicioGuardado) {
                         const segundosCalculados = Math.floor((Date.now() - Number(inicioGuardado)) / 1000)
                         setSegundosTranscurridos(segundosCalculados > 0 ? segundosCalculados : 0)
                     } else {
                         localStorage.setItem(`corte_inicio_${enProceso.id}`, Date.now().toString())
+                        setSegundosTranscurridos(0)
                     }
+                } else {
+                    setSegundosTranscurridos(0)
                 }
             }
         } catch (error) {
             console.error("Error al cargar órdenes:", error)
         } finally {
-            if (mostrarCarga) setLoading(false)
+            if (mostrarCarga && esUltimaSolicitud()) setLoading(false)
         }
     }
 
@@ -188,8 +202,10 @@ export default function AdminCosturaOrdenesPage() {
                 body: JSON.stringify({ ids: [id] })
             })
             const data = await res.json()
-            if (data.success) {
-                setOrdenes(prevOrdenes => prevOrdenes.filter(o => o.id !== id))
+            if (res.ok && data.success) {
+                await cargarOrdenes(false)
+            } else {
+                alert(data.message || "Error al enviar la orden a papelera")
             }
         } catch (error) {
             console.error("Error al enviar a papelera:", error)
@@ -209,12 +225,14 @@ export default function AdminCosturaOrdenesPage() {
                 body: JSON.stringify({ orden_id: orden.id })
             })
             const data = await res.json()
-            if (data.success) {
+            if (res.ok && data.success) {
                 setOrdenEnCorte(orden)
                 setSegundosTranscurridos(0)
                 setTemporizadorActivo(true)
                 localStorage.setItem(`corte_inicio_${orden.id}`, Date.now().toString())
-                cargarOrdenes()
+                await cargarOrdenes(false)
+            } else {
+                alert(data.message || 'No se pudo iniciar el corte.')
             }
         } catch (error) {
             console.error("Error al iniciar corte:", error)
@@ -231,15 +249,42 @@ export default function AdminCosturaOrdenesPage() {
                 body: JSON.stringify({ orden_id: ordenEnCorte.id, segundos: segundosTranscurridos })
             })
             const data = await res.json()
-            if (data.success) {
+            if (res.ok && data.success) {
                 localStorage.removeItem(`corte_inicio_${ordenEnCorte.id}`)
                 setOrdenEnCorte(null)
                 setTemporizadorActivo(false)
                 setSegundosTranscurridos(0)
-                cargarOrdenes()
+                await cargarOrdenes(false)
+            } else {
+                alert(data.message || 'No se pudo finalizar el corte.')
             }
         } catch (error) {
             console.error("Error al finalizar corte:", error)
+        }
+    }
+
+    const actualizarEsperaOrden = async (ordenId: number, accion: 'poner' | 'reanudar', motivo?: string) => {
+        setActualizandoEsperaId(ordenId)
+        try {
+            const res = await fetch('/api/admin_costura/ordenes/espera', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ orden_id: ordenId, accion, motivo })
+            })
+            const data = await res.json()
+            if (!res.ok || !data.success) {
+                alert(data.message || 'No se pudo actualizar el estado de espera de la OP.')
+                return
+            }
+
+            setOrdenSeleccionadaEspera(null)
+            setMotivoEspera('')
+            await cargarOrdenes(false)
+        } catch (error) {
+            console.error('Error al actualizar OP en espera:', error)
+            alert('Error de conexión al actualizar el estado de espera.')
+        } finally {
+            setActualizandoEsperaId(null)
         }
     }
 
@@ -321,6 +366,62 @@ export default function AdminCosturaOrdenesPage() {
 
                 return <span className="text-gray-400 text-xs italic">Esperando turno...</span>
             }
+        },
+        {
+            header: 'Poner en espera',
+            accessorKey: (row: any) => {
+                if (row.estado === 'corte en proceso' || ordenEnCorte?.id === row.id) {
+                    return <span className="text-xs text-gray-400">Corte iniciado</span>
+                }
+
+                if (ordenSeleccionadaEspera === row.id) {
+                    return (
+                        <div className="flex min-w-52 flex-col gap-2">
+                            <select
+                                value={motivoEspera}
+                                onChange={(event) => setMotivoEspera(event.target.value as (typeof MOTIVOS_ESPERA)[number] | '')}
+                                className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700"
+                                aria-label={`Motivo para poner en espera la OP ${row.op}`}
+                            >
+                                <option value="">Selecciona un motivo</option>
+                                {MOTIVOS_ESPERA.map((motivo) => <option key={motivo} value={motivo}>{motivo}</option>)}
+                            </select>
+                            <div className="flex gap-1.5">
+                                <button
+                                    onClick={() => void actualizarEsperaOrden(row.id, 'poner', motivoEspera)}
+                                    disabled={!motivoEspera || actualizandoEsperaId === row.id}
+                                    className="rounded-md bg-amber-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                                >
+                                    {actualizandoEsperaId === row.id ? 'Guardando...' : 'Confirmar espera'}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setOrdenSeleccionadaEspera(null)
+                                        setMotivoEspera('')
+                                    }}
+                                    className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
+                                >
+                                    Cancelar
+                                </button>
+                            </div>
+                        </div>
+                    )
+                }
+
+                return (
+                    <button
+                        onClick={() => {
+                            setOrdenSeleccionadaEspera(row.id)
+                            setMotivoEspera('')
+                        }}
+                        disabled={!!ordenEnCorte || actualizandoEsperaId !== null}
+                        className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Apartar esta OP temporalmente de la cola de corte"
+                    >
+                        <Icon icon="lucide:pause" /> Poner en espera
+                    </button>
+                )
+            }
         }
     ]
 
@@ -365,6 +466,54 @@ export default function AdminCosturaOrdenesPage() {
 
                 <ReusableTable data={ordenesOrdenadas} columns={columns} searchField='op' searchPlaceholder="Buscar por op..."/>
             </div>
+
+            <section className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/40 p-4 sm:p-6">
+                <div className="flex items-center justify-between gap-3">
+                    <div>
+                        <h2 className="flex items-center gap-2 text-lg font-bold text-slate-800">
+                            <Icon icon="lucide:pause-circle" className="text-amber-600" />
+                            Órdenes en espera
+                        </h2>
+                        <p className="mt-1 text-sm text-slate-500">Estas OP no bloquean la cola de corte. Puedes devolverlas cuando estén listas.</p>
+                    </div>
+                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">{ordenesEnEspera.length}</span>
+                </div>
+
+                {ordenesEnEspera.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-amber-200 bg-white/70 px-4 py-6 text-center text-sm text-slate-500">
+                        No hay órdenes en espera.
+                    </p>
+                ) : (
+                    <div className="grid gap-3 lg:grid-cols-2">
+                        {ordenesEnEspera.map((orden) => (
+                            <article key={orden.id} className="flex flex-col justify-between gap-4 rounded-xl border border-amber-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
+                                <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-xs font-mono text-slate-500">OP</span>
+                                        <h3 className="font-bold text-slate-900">{orden.op}</h3>
+                                        {esPrioritario(orden) && (
+                                            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700">Prioritaria</span>
+                                        )}
+                                    </div>
+                                    <p className="mt-1 truncate text-sm text-slate-700">{orden.producto} · {orden.nombre}</p>
+                                    <p className="mt-1 text-xs text-slate-500">Cantidad: {orden.cantidad}</p>
+                                    <p className="mt-2 inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                                        Motivo: {orden.motivo_espera}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => void actualizarEsperaOrden(orden.id, 'reanudar')}
+                                    disabled={actualizandoEsperaId !== null}
+                                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                                >
+                                    <Icon icon="lucide:rotate-ccw" />
+                                    {actualizandoEsperaId === orden.id ? 'Reanudando...' : 'Regresar a órdenes por cortar'}
+                                </button>
+                            </article>
+                        ))}
+                    </div>
+                )}
+            </section>
         </div>
     )
 }
