@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { RowDataPacket } from 'mysql2'
 
 export const dynamic = 'force-dynamic';
 
@@ -12,20 +13,40 @@ export async function GET(request: Request) {
             return NextResponse.json({ success: false, message: 'ID de operador requerido' }, { status: 400 })
         }
 
-        const [rows]: any = await pool.query(`
-            SELECT a.*, m.ruta as manual_ruta, m.tipo as manual_tipo, m.nombre_original as manual_nombre, pt.tiempo AS tiempo_base
+        const [rows] = await pool.query<RowDataPacket[]>(`
+            SELECT
+                a.*,
+                m.ruta AS manual_ruta,
+                m.tipo AS manual_tipo,
+                m.nombre_original AS manual_nombre,
+                pt.tiempo AS tiempo_base,
+                COALESCE(t.segundos_acumulados, 0) AS segundos_acumulados,
+                CAST(UNIX_TIMESTAMP(t.inicio_sesion) * 1000 AS UNSIGNED) AS inicio_sesion_ms
             FROM admin_costura_asignaciones a
             LEFT JOIN manuales_produccion m ON a.producto LIKE CONCAT(SUBSTRING_INDEX(m.nombre_original, '.', 1), '%')
             LEFT JOIN productos_tiempos pt ON a.producto = pt.codigo
+            LEFT JOIN (
+                SELECT
+                    id_operador,
+                    op,
+                    SUM(
+                        CASE
+                            WHEN fecha_fin IS NULL THEN 0
+                            ELSE COALESCE(tiempo_segundos, TIMESTAMPDIFF(SECOND, fecha_inicio, fecha_fin))
+                        END
+                    ) AS segundos_acumulados,
+                    MAX(CASE WHEN fecha_fin IS NULL THEN fecha_inicio END) AS inicio_sesion
+                FROM operador_tiempos_costura
+                GROUP BY id_operador, op
+            ) t ON t.id_operador = a.id_operador AND t.op = a.op
             WHERE a.id_operador = ? 
-              AND (a.estatus IS NULL OR a.estatus != 'TERMINADO')
-            ORDER BY a.id ASC
-            LIMIT 1
+              AND (a.estatus IN ('asignado', 'pausado') OR a.estatus IS NULL)
+            ORDER BY CASE WHEN a.estatus = 'pausado' THEN 1 ELSE 0 END, a.id DESC
         `, [id_operador])
 
         return NextResponse.json({ 
             success: true, 
-            asignaciones: rows 
+            asignaciones: rows
         })
     } catch (error) {
         console.error('Error al obtener asignaciones del operador:', error)

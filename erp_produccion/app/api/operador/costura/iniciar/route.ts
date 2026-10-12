@@ -1,50 +1,91 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { RowDataPacket } from 'mysql2'
 
-export const dynamic = 'force-dynamic';
+interface OperatorAssignmentRow extends RowDataPacket {
+    id_operador: number
+    op: string
+    rq: string
+    producto: string
+    nombre: string
+    cantidad_asignada: number
+    estatus: string | null
+}
+
+interface OpenTimingSessionRow extends RowDataPacket {
+    op: string
+}
+
+export const dynamic = 'force-dynamic'
 
 export async function POST(request: Request) {
-    try {
-        const body = await request.json()
-        const { asignacion_id } = body
+    let connection: Awaited<ReturnType<typeof pool.getConnection>> | null = null
+    let transactionStarted = false
 
+    try {
+        const { asignacion_id } = await request.json()
         if (!asignacion_id) {
             return NextResponse.json({ success: false, message: 'ID de asignación requerido' }, { status: 400 })
         }
 
-        // 1. Consultamos los datos de la asignación original en admin_costura_asignaciones
-        const [asignaciones]: any = await pool.query(
-            `SELECT * FROM admin_costura_asignaciones WHERE id = ?`,
+        connection = await pool.getConnection()
+        await connection.beginTransaction()
+        transactionStarted = true
+
+        const [rows] = await connection.query<OperatorAssignmentRow[]>(
+            `SELECT * FROM admin_costura_asignaciones WHERE id = ? FOR UPDATE`,
             [asignacion_id]
         )
 
-        if (asignaciones.length === 0) {
-            return NextResponse.json({ success: false, message: 'Asignación no encontrada' }, { status: 404 })
+        if (!rows.length || (rows[0].estatus !== 'asignado' && rows[0].estatus !== null)) {
+            await connection.rollback()
+            return NextResponse.json(
+                { success: false, message: 'La asignación no está activa o está bloqueada por una orden prioritaria' },
+                { status: 409 }
+            )
         }
 
-        const asignacion = asignaciones[0]
-
-        // 2. Insertamos la información en operador_tiempos_costura junto con la fecha y hora exacta del clic
-        await pool.query(
-            `INSERT INTO operador_tiempos_costura (rq, op, producto, nombre, cantidad_asignada, id_operador, fecha_inicio) 
-             VALUES (?, ?, ?, ?, ?, ?, NOW())`,
-            [
-                asignacion.rq,
-                asignacion.op,
-                asignacion.producto,
-                asignacion.nombre,
-                asignacion.cantidad_asignada,
-                asignacion.id_operador
-            ]
+        const asignacion = rows[0]
+        const [sesiones] = await connection.query<OpenTimingSessionRow[]>(
+            `SELECT id, op FROM operador_tiempos_costura
+             WHERE id_operador = ? AND fecha_fin IS NULL
+             FOR UPDATE`,
+            [asignacion.id_operador]
         )
+        const otraSesion = sesiones.find((sesion) => sesion.op !== asignacion.op)
 
-        return NextResponse.json({ 
-            success: true, 
-            message: 'Costura iniciada correctamente' 
-        })
+        if (otraSesion) {
+            await connection.rollback()
+            return NextResponse.json(
+                { success: false, message: 'Ya existe un temporizador activo para otra OP de este operador' },
+                { status: 409 }
+            )
+        }
 
+        if (!sesiones.length) {
+            await connection.query(
+                `INSERT INTO operador_tiempos_costura
+                    (rq, op, producto, nombre, cantidad_asignada, id_operador, fecha_inicio)
+                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                [
+                    asignacion.rq,
+                    asignacion.op,
+                    asignacion.producto,
+                    asignacion.nombre,
+                    asignacion.cantidad_asignada,
+                    asignacion.id_operador
+                ]
+            )
+        }
+
+        await connection.commit()
+        transactionStarted = false
+        return NextResponse.json({ success: true, message: 'Temporizador iniciado correctamente' })
     } catch (error) {
+        if (connection && transactionStarted) await connection.rollback()
         console.error('Error al iniciar costura:', error)
         return NextResponse.json({ success: false, message: 'Error del servidor' }, { status: 500 })
+    } finally {
+        connection?.release()
     }
 }

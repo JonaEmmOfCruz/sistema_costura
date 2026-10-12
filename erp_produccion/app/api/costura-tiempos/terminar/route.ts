@@ -1,12 +1,19 @@
 import { NextResponse } from 'next/server'
 import { pool } from "@/lib/db";
+import { RowDataPacket } from 'mysql2'
+
+interface AssignmentTimingRow extends RowDataPacket {
+    id_operador: number
+    op: string
+    estatus: string
+}
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
     try {
         const body = await req.json()
-        const { id_asignacion, op, tipo, tiempo_segundos, fecha_fin } = body 
+        const { id_asignacion, op, tipo, fecha_fin } = body
 
         if (!id_asignacion && !op) {
             return NextResponse.json({ success: false, message: 'Falta información de la asignación' }, { status: 400 })
@@ -20,39 +27,70 @@ export async function POST(req: Request) {
                 [fecha_fin || null, id_asignacion]
             )
         } else {
-            // 1. Marcar como TERMINADO en la tabla de asignaciones
-            if (id_asignacion) {
-                await pool.query(
-                    `UPDATE admin_costura_asignaciones 
-                     SET estatus = 'TERMINADO' 
-                     WHERE id = ?`,
-                    [id_asignacion]
-                )
-            }
+            const connection = await pool.getConnection()
 
-            // 2. Guardar fecha de fin y los segundos en operador_tiempos_costura
-            const fechaFinFinal = fecha_fin ? new Date(fecha_fin) : new Date();
+            try {
+                await connection.beginTransaction()
 
-            if (op) {
-                await pool.query(
-                    `UPDATE operador_tiempos_costura 
-                     SET fecha_fin = ?, tiempo_segundos = ? 
-                     WHERE op = ? AND fecha_fin IS NULL`,
-                    [fechaFinFinal, tiempo_segundos || 0, op]
-                )
-            } else if (id_asignacion) {
-                await pool.query(
-                    `UPDATE operador_tiempos_costura 
-                     SET fecha_fin = ?, tiempo_segundos = ? 
-                     WHERE id = ?`,
-                    [fechaFinFinal, tiempo_segundos || 0, id_asignacion]
-                )
+                if (id_asignacion) {
+                    const [rows] = await connection.query<AssignmentTimingRow[]>(
+                        `SELECT id_operador, op, estatus FROM admin_costura_asignaciones WHERE id = ? FOR UPDATE`,
+                        [id_asignacion]
+                    )
+
+                    if (!rows.length) {
+                        await connection.rollback()
+                        return NextResponse.json(
+                            { success: false, message: 'Asignación no encontrada' },
+                            { status: 404 }
+                        )
+                    }
+
+                    const asignacion = rows[0]
+                    if (asignacion.estatus === 'pausado') {
+                        await connection.rollback()
+                        return NextResponse.json(
+                            { success: false, message: 'No puedes terminar una orden bloqueada por una prioridad' },
+                            { status: 409 }
+                        )
+                    }
+
+                    await connection.query(
+                        `UPDATE operador_tiempos_costura
+                        SET fecha_fin = NOW(),
+                            tiempo_segundos = COALESCE(tiempo_segundos, 0)
+                                + TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())
+                         WHERE id_operador = ? AND op = ? AND fecha_fin IS NULL`,
+                        [asignacion.id_operador, asignacion.op]
+                    )
+
+                    await connection.query(
+                        `UPDATE admin_costura_asignaciones SET estatus = 'TERMINADO' WHERE id = ?`,
+                        [id_asignacion]
+                    )
+                } else if (op) {
+                    await connection.query(
+                        `UPDATE operador_tiempos_costura
+                        SET fecha_fin = NOW(),
+                            tiempo_segundos = COALESCE(tiempo_segundos, 0)
+                                + TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())
+                         WHERE op = ? AND fecha_fin IS NULL`,
+                        [op]
+                    )
+                }
+
+                await connection.commit()
+            } catch (error) {
+                await connection.rollback()
+                throw error
+            } finally {
+                connection.release()
             }
         }
 
         return NextResponse.json({ success: true, message: 'Registro terminado con éxito' })
-    } catch (error: any) {
+    } catch (error) {
         console.error("Error al terminar orden:", error)
-        return NextResponse.json({ success: false, message: 'Error interno del servidor', error: error.message }, { status: 500 })
+        return NextResponse.json({ success: false, message: 'Error interno del servidor' }, { status: 500 })
     }
 }

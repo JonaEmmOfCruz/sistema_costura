@@ -81,6 +81,14 @@ export async function POST() {
                 const opIndex = operadores.findIndex((o: any) => o.usuario_id === pausada.id_operador)
                 if (opIndex !== -1) {
                     const op = operadores[opIndex]
+
+                    await connection.query(`
+                        UPDATE operador_tiempos_costura
+                        SET fecha_fin = NOW(),
+                            tiempo_segundos = COALESCE(tiempo_segundos, 0)
+                                + TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())
+                        WHERE id_operador = ? AND op = ? AND fecha_fin IS NULL
+                    `, [pausada.id_operador, pausada.op])
                     
                     // Si el operador ya está ocupado, no le reanudamos nada todavía
                     if (op.tieneAsignacionActiva) continue;
@@ -160,6 +168,13 @@ export async function POST() {
                             if (opIndex !== -1 && operadores[opIndex].tieneAsignacionActiva) {
                                 // Pausamos su tarea actual
                                 await connection.query(`UPDATE admin_costura_asignaciones SET estatus = 'pausado' WHERE id = ?`, [asig.id])
+                                await connection.query(`
+                                    UPDATE operador_tiempos_costura
+                                    SET fecha_fin = NOW(),
+                                        tiempo_segundos = COALESCE(tiempo_segundos, 0)
+                                            + TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())
+                                    WHERE id_operador = ? AND op = ? AND fecha_fin IS NULL
+                                `, [asig.id_operador, asig.op])
                                 
                                 const tBase = Number(asig.tiempo_base) || 0
                                 const asigCosto = tBase > MAX_SEGUNDOS ? MAX_SEGUNDOS : tBase

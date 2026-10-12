@@ -27,17 +27,43 @@ export async function GET(request: Request) {
             return NextResponse.json({success: false, message: "Token no encontrado"})
         }
 
-        const decoded: any = jwt.verify(token, JWT_SECRET)
+        let decoded: jwt.JwtPayload
+        try {
+            const verified = jwt.verify(token, JWT_SECRET)
+            if (typeof verified === 'string' || !verified.jti) {
+                return NextResponse.json(
+                    { success: false, message: "Token inválido" },
+                    { status: 401 }
+                )
+            }
+            decoded = verified
+        } catch {
+            return NextResponse.json(
+                { success: false, message: "Token inválido o expirado" },
+                { status: 401 }
+            )
+        }
 
         const [sessionRows] = await pool.query<RowDataPacket[]>(
-            'select * from Sesiones where token_jti = ? and expira_en > now()', [decoded.jti]
+            'select token_jti from Sesiones where token_jti = ? and expira_en > now()', [decoded.jti]
         )
+
+        if (sessionRows.length === 0) {
+            return NextResponse.json(
+                { success: false, message: "La sesión expiró o fue cerrada" },
+                { status: 401 }
+            )
+        }
 
         return NextResponse.json({
             success: true,
             user: decoded
         })
     } catch (error) {
-        return NextResponse.json({success: false, message: "Token inválido o expirado"})
+        console.error("Error al verificar sesión:", error)
+        return NextResponse.json(
+            { success: false, message: "No se pudo verificar la sesión" },
+            { status: 500 }
+        )
     }
 }
