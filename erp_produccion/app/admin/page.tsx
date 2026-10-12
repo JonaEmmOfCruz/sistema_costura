@@ -1,15 +1,14 @@
 'use client'
-import UserStatsGrid from "@/components/UserStatsGrid"
-import DynamicReportBuilder from "@/components/DynamicReportBuilder"
+import ProductionAnalyticsDashboard from "@/components/ProductionAnalyticsDashboard"
 import { useEffect, useState } from "react"
-import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
-import useLatestRequest from "@/lib/useLatestRequest"
+
+interface AdminUser {
+    nombre: string
+}
 
 export default function AdminDashboard() {
-    const [user, setUser] = useState<any>(null)
+    const [user, setUser] = useState<AdminUser | null>(null)
     const [loading, setLoading] = useState(true)
-    const [stats, setStats] = useState<any>(null)
-    const isLatestRequest = useLatestRequest()
 
     useEffect(() => {
         async function fetchUserData() {
@@ -17,7 +16,7 @@ export default function AdminDashboard() {
                 const res = await fetch('/api/me')
                 const data = await res.json()
                 if (res.ok && data.success) {
-                    setUser(data.user)
+                    setUser({ nombre: String(data.user.nombre ?? '') })
                 }
             } catch (error) {
                 console.error("Error al obtener sesión:", error)
@@ -27,25 +26,6 @@ export default function AdminDashboard() {
         }
         fetchUserData()
     }, [])
-
-    const fetchStats = async () => {
-        const esUltimaSolicitud = isLatestRequest()
-        try {
-            const res = await fetch('/api/usuarios/stats', { cache: 'no-store' })
-            const data = await res.json()
-            if (esUltimaSolicitud() && res.ok && data.success) {
-                setStats(data.stats)
-            }
-        } catch (error) {
-            console.error("Error al cargar estadísticas:", error)
-        }
-    }
-
-    useEffect(() => {
-        fetchStats()
-    }, [])
-
-    useRealtimeRefresh(fetchStats)
 
     if (loading) return (
         <div className="flex h-screen items-center justify-center bg-gray-50 text-gray-500">
@@ -64,13 +44,7 @@ export default function AdminDashboard() {
                 </p>
             </div>
 
-            <div className="mt-10 space-y-6">
-                {/* 1. Primera sección (Estadísticas Originales) */}
-                {stats && <UserStatsGrid stats={stats} />}
-
-                {/* 2. Segunda sección (Generador Dinámico debajo) */}
-                <DynamicReportBuilder />
-            </div>
+            <ProductionAnalyticsDashboard />
         </div>
     )
 }
