@@ -48,17 +48,18 @@ export default function LoginPage() {
       }
 
       console.log("Usuario autenticado:", data.user)
-      const tipo = data.user.tipo_usuario?.trim()
+      const tipo = String(data.user.tipo_usuario ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
 
       // Redirección basada en el tipo de usuario obtenido de la BD
-      if (tipo === 'Administrador') {
+      if (tipo === 'administrador') {
         router.push('/admin')
-      } else if (tipo === 'Administrador_Costura') {
+      } else if (tipo === 'administrador_costura') {
         router.push('/admin_costura/ordenes')
-      } else if (tipo === 'Operador') {
+      } else if (tipo === 'operador') {
         router.push('/operador')
       } else {
-        router.push('/dashboard')
+        setErrorMessage("El tipo de usuario no está configurado correctamente. Contacte al administrador.")
+        return
       }
 
       router.refresh()
