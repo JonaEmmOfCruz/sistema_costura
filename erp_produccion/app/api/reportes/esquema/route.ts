@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 
+export const dynamic = 'force-dynamic';
+
 const TABLAS_PERMITIDAS = [
     'admin_costura_asignaciones',
     'admin_costura_ordenes',

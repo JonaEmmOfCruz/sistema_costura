@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 import * as XLSX from 'xlsx'
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
     try {
         const formData = await request.formData()

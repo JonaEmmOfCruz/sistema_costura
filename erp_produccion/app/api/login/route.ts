@@ -4,6 +4,8 @@ import { RowDataPacket } from "mysql2";
 import jwt from "jsonwebtoken";
 import crypto from "crypto"
 
+export const dynamic = 'force-dynamic';
+
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret'
 
 export async function POST(request: Request) {
@@ -30,6 +32,14 @@ export async function POST(request: Request) {
         }
 
         const user = rows[0]
+        const roleKey = String(user.tipo_usuario ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_')
+        const tipoUsuario = roleKey === 'administrador'
+            ? 'Administrador'
+            : roleKey === 'administrador_costura'
+                ? 'Administrador_Costura'
+                : roleKey === 'operador'
+                    ? 'Operador'
+                    : String(user.tipo_usuario ?? '').trim()
 
         const [existingSessions] = await pool.query<RowDataPacket[]>(
             'SELECT token_jti FROM Sesiones WHERE usuario_id = ? AND expira_en > NOW() LIMIT 1', 
@@ -50,7 +60,7 @@ export async function POST(request: Request) {
             )
         }
 
-        const role = user.tipo_usuario === 'Administrador' ? 'admin' : 'operador'
+        const role = tipoUsuario === 'Administrador' ? 'admin' : 'operador'
 
         const token = jwt.sign(
             {
@@ -59,7 +69,7 @@ export async function POST(request: Request) {
                 nombre: user.nombre,
                 numero_empleado: user.numero_empleado,
                 area: user.area,
-                tipo_usuario: user.tipo_usuario
+                tipo_usuario: tipoUsuario
             },
             JWT_SECRET,
             { expiresIn: '5h' }
@@ -68,15 +78,20 @@ export async function POST(request: Request) {
         const response = NextResponse.json({
             success: true,
             message: 'Acceso autorizado',
-            user: { ...user, role },
+            user: { ...user, tipo_usuario: tipoUsuario, role },
             token,
         })
+
+        const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+        const secureCookie = forwardedProto
+            ? forwardedProto === 'https'
+            : new URL(request.url).protocol === 'https:'
 
         response.cookies.set({
             name: 'auth_token',
             value: token,
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
+            secure: secureCookie,
             sameSite: 'strict',
             maxAge: 60 * 60 * 5,
             path: '/',

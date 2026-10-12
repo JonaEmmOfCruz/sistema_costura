@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { RowDataPacket, ResultSetHeader } from "mysql2";
 
 // GET: Consultar usuarios
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
     try {
         const [rows] = await pool.query<RowDataPacket[]>(

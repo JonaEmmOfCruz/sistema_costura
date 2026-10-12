@@ -2,6 +2,8 @@ import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { RowDataPacket } from "mysql2";
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
     try {
         // Obtenemos los operadores y su vigencia actual si existe

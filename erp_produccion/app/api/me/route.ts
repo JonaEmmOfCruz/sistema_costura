@@ -3,6 +3,8 @@ import { pool } from "@/lib/db";
 import { RowDataPacket } from "mysql2";
 import jwt from "jsonwebtoken";
 
+export const dynamic = 'force-dynamic';
+
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret'
 
 export async function GET(request: Request) {

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
-
+export const dynamic = 'force-dynamic';
 // LISTA OFICIAL DE PREFIJOS
 const PREFIJOS = [
     "103-070", "103-046", "202-070", "102-070", "102-020",

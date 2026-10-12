@@ -4,6 +4,8 @@ import { ResultSetHeader, RowDataPacket } from "mysql2";
 import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 
+export const dynamic = 'force-dynamic';
+
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
 export async function POST(request: Request) {

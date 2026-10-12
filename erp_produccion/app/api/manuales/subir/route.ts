@@ -4,6 +4,8 @@ import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
 
 // Limpia el nombre del archivo subido para obtener la clave primaria
+export const dynamic = 'force-dynamic';
+
 function extraerCodigoUnico(nombreArchivo: string): string {
     const nombreSinExt = path.basename(nombreArchivo, path.extname(nombreArchivo))
     // Si el nombre viene como "102-1361N-00-23", toma el segundo elemento
