@@ -1,8 +1,8 @@
 'use client'
-
 import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 export default function AdminCosturaPapeleraPage() {
     const [loading, setLoading] = useState(false)
@@ -27,6 +27,8 @@ export default function AdminCosturaPapeleraPage() {
     useEffect(() => {
         cargarOrdenesPapelera()
     }, [])
+
+    useRealtimeRefresh(cargarOrdenesPapelera)
 
     // Función para recuperar la orden y regresarla a admin_costura_ordenes
     const handleRestaurarOrden = async (id: number) => {

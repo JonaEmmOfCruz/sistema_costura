@@ -1,7 +1,7 @@
 'use client'
-
 import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 export default function OperadorPage() {
     const [user, setUser] = useState<any>(null)
@@ -34,20 +34,19 @@ export default function OperadorPage() {
         obtenerUsuario()
     }, [])
 
-    // 2. AUTO-REFRESH: Carga inicial y polling cada 10 segundos si no hay costura activa
+    // 2. AUTO-REFRESH: Carga inicial y polling cada 5 segundos si no hay costura activa
     useEffect(() => {
         if (!user?.id) return
 
         cargarAsignacionPendiente(user.id)
 
-        const interval = setInterval(() => {
-            if (!costuraActiva) {
-                cargarAsignacionPendiente(user.id)
-            }
-        }, 10000)
+    }, [user?.id])
 
-        return () => clearInterval(interval)
-    }, [user, costuraActiva])
+    useRealtimeRefresh(() => {
+        if (user?.id && !costuraActiva) {
+            return cargarAsignacionPendiente(user.id)
+        }
+    })
 
     // 3. Evaluar el producto asignado para buscar su manual
     useEffect(() => {
@@ -84,7 +83,7 @@ export default function OperadorPage() {
 
     const cargarAsignacionPendiente = async (idOperador: number) => {
         try {
-            const res = await fetch(`/api/operador/asignaciones?id_operador=${idOperador}`)
+            const res = await fetch(`/api/operador/asignaciones?id_operador=${idOperador}`, { cache: 'no-store' })
             const data = await res.json()
             
             if (data.success && data.asignaciones.length > 0) {

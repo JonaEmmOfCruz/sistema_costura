@@ -1,7 +1,7 @@
 'use client'
-
 import { useEffect, useState } from "react"
 import AreaCard from "@/components/AreaCard"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 export default function OperadoresPage() {
     const [loading, setLoading] = useState(true)
@@ -10,7 +10,7 @@ export default function OperadoresPage() {
 
     const cargarOperadores = async () => {
         try {
-            const res = await fetch('/api/operadores')
+            const res = await fetch('/api/operadores', { cache: 'no-store' })
             const data = await res.json()
             if (data.success) {
                 setOperadores(data.usuarios)
@@ -63,10 +63,10 @@ export default function OperadoresPage() {
         }
     }
 
-    const cargarOrdenes = async () => {
-        setLoading(true)
+    const cargarOrdenes = async (mostrarCarga = true) => {
+        if (mostrarCarga) setLoading(true)
         try {
-            const res = await fetch('/api/admin_costura/asignadas')
+            const res = await fetch('/api/admin_costura/asignadas', { cache: 'no-store' })
             const data = await res.json()
             if (data.success) {
                 setAsignadas(data.asignadas)
@@ -74,13 +74,31 @@ export default function OperadoresPage() {
         } catch (error) {
             console.error("Error al cargar órdenes:", error)
         } finally {
-            setLoading(false)
+            if (mostrarCarga) setLoading(false)
         }
     }
 
     useEffect(() => {
-        cargarOrdenes()
+        const iniciar = async () => {
+            cargarOperadores()
+            try {
+                const res = await fetch('/api/admin_costura/auto_asignar', { method: 'POST' })
+                const data = await res.json()
+                if (!res.ok || !data.success) {
+                    console.error("Error al ejecutar la auto-asignación:", data.message)
+                }
+            } catch (error) {
+                console.error("Error al ejecutar la auto-asignación:", error)
+            }
+            await cargarOrdenes(false)
+        }
+        void iniciar()
     }, [])
+
+    useRealtimeRefresh(() => {
+        void cargarOperadores()
+        void cargarOrdenes(false)
+    })
 
     if (loading) {
         return <div className="text-center py-10 text-gray-400 text-sm">Cargando operadores...</div>

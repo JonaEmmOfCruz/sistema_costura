@@ -1,9 +1,9 @@
 'use client'
-
 import { useEffect, useState } from "react"
 
 import UserRegistrationForm from "@/components/UserRegistrationForm"
 import ReusableTable from "@/components/ReusableTable"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 export default function AdminRegisterUser() {
     const [loading, setLoading] = useState(true)
@@ -32,6 +32,8 @@ export default function AdminRegisterUser() {
     useEffect(() => {
         fetchUsers()
     }, [])
+
+    useRealtimeRefresh(fetchUsers)
 
     // Handler para eliminar un usuario
     const handleDelete = async (userId: string | number) => {

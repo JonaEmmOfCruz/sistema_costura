@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 export default function SubirManualesPage() {
     const [file, setFile] = useState<File | null>(null)
@@ -82,6 +83,8 @@ export default function SubirManualesPage() {
     useEffect(() => {
         cargarManuales()
     }, [])
+
+    useRealtimeRefresh(cargarManuales)
 
     const columns = [
         { header: 'Nombre de Archivo', accessorKey: 'nombre_original' },

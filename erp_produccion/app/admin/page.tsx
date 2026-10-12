@@ -1,8 +1,8 @@
 'use client'
-
 import UserStatsGrid from "@/components/UserStatsGrid"
 import DynamicReportBuilder from "@/components/DynamicReportBuilder"
 import { useEffect, useState } from "react"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 export default function AdminDashboard() {
     const [user, setUser] = useState<any>(null)
@@ -26,20 +26,23 @@ export default function AdminDashboard() {
         fetchUserData()
     }, [])
 
-    useEffect(() => {
-        async function fetchStats() {
-            try {
-                const res = await fetch('/api/usuarios/stats')
-                const data = await res.json()
-                if (res.ok && data.success) {
-                    setStats(data.stats)
-                }
-            } catch (error) {
-                console.error("Error al cargar estadísticas:", error)
+    const fetchStats = async () => {
+        try {
+            const res = await fetch('/api/usuarios/stats', { cache: 'no-store' })
+            const data = await res.json()
+            if (res.ok && data.success) {
+                setStats(data.stats)
             }
+        } catch (error) {
+            console.error("Error al cargar estadísticas:", error)
         }
+    }
+
+    useEffect(() => {
         fetchStats()
     }, [])
+
+    useRealtimeRefresh(fetchStats)
 
     if (loading) return (
         <div className="flex h-screen items-center justify-center bg-gray-50 text-gray-500">

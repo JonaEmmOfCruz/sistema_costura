@@ -1,8 +1,8 @@
 'use client'
-
 import { useEffect, useState } from "react"
 import ReusableTable from "@/components/ReusableTable"
 import { Icon } from "@iconify/react"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 // Lista de prefijos prioritarios
 const PREFIJOS_PRIORITARIOS = [
@@ -40,14 +40,12 @@ export default function OrdenesCortadasPage() {
     // Mapa para registrar las peticiones pendientes consultadas en la BD
     const [peticionesBD, setPeticionesBD] = useState<Record<string, boolean>>({})
 
-    const cargarOrdenesCortadas = async () => {
+    const cargarOrdenesCortadas = async (mostrarCarga = true) => {
         try {
-            await fetch('/api/admin_costura/auto_asignar', { method: 'POST' })
-
             // Consultamos en paralelo las órdenes cortadas y las peticiones pendientes registradas en DB
             const [resCortadas, resPeticiones] = await Promise.all([
-                fetch('/api/admin_costura/cortadas'),
-                fetch('/api/productos/peticiones')
+                fetch('/api/admin_costura/cortadas', { cache: 'no-store' }),
+                fetch('/api/productos/peticiones', { cache: 'no-store' })
             ])
 
             if (resCortadas.ok) {
@@ -72,13 +70,28 @@ export default function OrdenesCortadasPage() {
         } catch (error) {
             console.error("Error al cargar órdenes o peticiones:", error)
         } finally {
-            setLoading(false)
+            if (mostrarCarga) setLoading(false)
         }
     }
 
     useEffect(() => {
-        cargarOrdenesCortadas()
+        const iniciar = async () => {
+            try {
+                const res = await fetch('/api/admin_costura/auto_asignar', { method: 'POST' })
+                const data = await res.json()
+                if (!res.ok || !data.success) {
+                    console.error("Error al ejecutar la auto-asignación:", data.message)
+                }
+            } catch (error) {
+                console.error("Error al ejecutar la auto-asignación:", error)
+            }
+            await cargarOrdenesCortadas()
+        }
+
+        void iniciar()
     }, [])
+
+    useRealtimeRefresh(() => cargarOrdenesCortadas(false))
 
     const cerrarModal = () => setModal(prev => ({ ...prev, isOpen: false }))
 

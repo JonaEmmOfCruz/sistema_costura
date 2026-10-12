@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 export default function SubirOrdenesPage() {
     const [file, setFile] = useState<File | null>(null)
@@ -157,6 +158,11 @@ export default function SubirOrdenesPage() {
         .catch(err => console.error("Error al cargar datos del modal:", err))
         .finally(() => setLoadingModalData(false))
     }
+
+    useRealtimeRefresh(() => {
+        void cargarOrdenesPrincipales()
+        if (isModalOpen) handleOpenModal()
+    })
 
     // Componente reutilizable para Renderizar el Encabezado con Filtro de Fecha
     const DateHeader = ({ title, fieldKey, currentFilter, setFilter }: { 

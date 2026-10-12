@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, AreaChart, Area } from 'recharts'
 import { Icon } from '@iconify/react'
+import useRealtimeRefresh from '@/lib/useRealtimeRefresh'
 
 const BI_COLORS = ['#118DFF', '#12239E', '#E66C37', '#6B007B', '#E044A7', '#744EC2', '#D9B300', '#D64550']
 
@@ -117,6 +118,12 @@ export default function DynamicReportBuilder() {
             setCargando(false)
         }
     }
+
+    useRealtimeRefresh(() => {
+        if (ejeX && ejeY.length > 0) {
+            return generarResultados()
+        }
+    })
 
     // NUEVO: Generación automática al cambiar fechas (si ya hay datos configurados)
     useEffect(() => {

@@ -1,8 +1,8 @@
 'use client'
-
 import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 const PREFIJOS_PRIORITARIOS = [
     "103-070",
@@ -128,10 +128,10 @@ export default function AdminCosturaOrdenesPage() {
     const [segundosTranscurridos, setSegundosTranscurridos] = useState(0)
     const [temporizadorActivo, setTemporizadorActivo] = useState(false)
 
-    const cargarOrdenes = async () => {
-        setLoading(true)
+    const cargarOrdenes = async (mostrarCarga = true) => {
+        if (mostrarCarga) setLoading(true)
         try {
-            const res = await fetch('/api/admin_costura/ordenes')
+            const res = await fetch('/api/admin_costura/ordenes', { cache: 'no-store' })
             const data = await res.json()
             if (data.success) {
                 setOrdenes(data.ordenes)
@@ -153,13 +153,15 @@ export default function AdminCosturaOrdenesPage() {
         } catch (error) {
             console.error("Error al cargar órdenes:", error)
         } finally {
-            setLoading(false)
+            if (mostrarCarga) setLoading(false)
         }
     }
 
     useEffect(() => {
         cargarOrdenes()
     }, [])
+
+    useRealtimeRefresh(() => cargarOrdenes(false))
 
     useEffect(() => {
         let intervalo: any = null;

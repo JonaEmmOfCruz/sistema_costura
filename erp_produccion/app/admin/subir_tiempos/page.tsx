@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
+import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 
 interface PeticionTiempo {
     id: number;
@@ -114,6 +115,11 @@ export default function SubirTiemposProductosPage() {
         cargarProductos()
         cargarPeticiones()
     }, [])
+
+    useRealtimeRefresh(() => {
+        cargarProductos()
+        cargarPeticiones()
+    })
 
     // FILTRADO AUTOMÁTICO: Oculta peticiones que ya tengan un tiempo registrado en la tabla de productos
     const peticionesPendientes = peticiones.filter(peticion => {
