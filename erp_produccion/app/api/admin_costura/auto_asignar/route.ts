@@ -45,10 +45,10 @@ export async function POST() {
 
             // 2. LEER TAREAS ACTIVAS ACTUALES (Y PONERLES EL CANDADO)
             const [asignacionesActivas]: any = await connection.query(`
-                SELECT a.*, pt.tiempo AS tiempo_base, 
+                SELECT a.*, pt.t_costura AS tiempo_base,
                 CASE WHEN (${likeAsign}) THEN 1 ELSE 4 END AS nivel_prioridad
                 FROM admin_costura_asignaciones a
-                LEFT JOIN productos_tiempos pt ON a.producto = pt.codigo
+                LEFT JOIN productos_tiempos pt ON a.producto = pt.cod_proceso
                 WHERE a.estatus = 'asignado'
                 FOR UPDATE
             `)
@@ -68,10 +68,10 @@ export async function POST() {
 
             // 3. REANUDAR TAREAS PAUSADAS ANTES DE DARLES ALGO NUEVO
             const [asignacionesPausadas]: any = await connection.query(`
-                SELECT a.*, pt.tiempo AS tiempo_base,
+                SELECT a.*, pt.t_costura AS tiempo_base,
                 CASE WHEN (${likeAsign}) THEN 1 ELSE 4 END AS nivel_prioridad
                 FROM admin_costura_asignaciones a
-                LEFT JOIN productos_tiempos pt ON a.producto = pt.codigo
+                LEFT JOIN productos_tiempos pt ON a.producto = pt.cod_proceso
                 WHERE a.estatus = 'pausado'
                 ORDER BY nivel_prioridad ASC, a.id ASC
                 FOR UPDATE
@@ -130,10 +130,10 @@ export async function POST() {
 
             // 4. OBTENER ÓRDENES NUEVAS PENDIENTES
             const [ordenesPendientes]: any = await connection.query(`
-                SELECT c.*, pt.tiempo AS tiempo_base,
+                SELECT c.*, pt.t_costura AS tiempo_base,
                 CASE WHEN (${likeCortes}) THEN 1 ELSE 4 END AS nivel_prioridad
                 FROM admin_costura_cortes c
-                LEFT JOIN productos_tiempos pt ON c.producto = pt.codigo
+                LEFT JOIN productos_tiempos pt ON c.producto = pt.cod_proceso
                 WHERE c.estatus IN ('cortada', 'asignacion parcial')
                 ORDER BY nivel_prioridad ASC, c.id ASC
                 FOR UPDATE

@@ -9,7 +9,7 @@ interface ProductoTiempoRow extends RowDataPacket {
     codigo: string | null
     nombre_secundario: string | null
     costura: string | null
-    tiempo: string | number | null
+    t_costura: string | number | null
 }
 
 export const dynamic = 'force-dynamic'
@@ -42,10 +42,17 @@ export async function GET(request: Request) {
         }
 
         const [productos] = await pool.query<ProductoTiempoRow[]>(`
-            SELECT id, modelo, nombre, codigo, nombre_secundario, costura, tiempo
+            SELECT
+                NULL AS id,
+                NULL AS modelo,
+                NULL AS nombre,
+                cod_proceso AS codigo,
+                descripcion AS nombre_secundario,
+                costura,
+                t_costura
             FROM productos_tiempos
-            WHERE tiempo IS NOT NULL
-              AND TRIM(CAST(tiempo AS CHAR)) <> ''
+            WHERE t_costura IS NOT NULL
+              AND t_costura > 0
               AND costura IS NOT NULL
               AND TRIM(CAST(costura AS CHAR)) <> ''
             ORDER BY id DESC

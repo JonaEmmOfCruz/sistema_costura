@@ -1,12 +1,30 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { RowDataPacket } from 'mysql2'
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
     try {
-        const [rows]: any = await pool.query(
-            `SELECT * FROM productos_tiempos ORDER BY id DESC`
+        const [rows] = await pool.query<RowDataPacket[]>(
+            `SELECT
+                id,
+                cod_proceso,
+                descripcion,
+                costura,
+                t_costura,
+                tapizado,
+                t_tapizado,
+                armado,
+                t_armado,
+                montado,
+                t_montado,
+                empaque,
+                t_empaque,
+                corte,
+                t_corte
+             FROM productos_tiempos
+             ORDER BY cod_proceso ASC`
         )
 
         return NextResponse.json({

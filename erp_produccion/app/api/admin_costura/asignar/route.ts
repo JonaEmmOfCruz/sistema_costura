@@ -17,9 +17,9 @@ export async function POST(request: Request) {
 
             // 1. Obtener la orden y el tiempo que toma cada pieza (cruce con productos_tiempos)
             const [ordenRows]: any = await connection.query(
-                `SELECT c.*, pt.tiempo AS tiempo_base
+                `SELECT c.*, pt.t_costura AS tiempo_base
                  FROM admin_costura_cortes c
-                 LEFT JOIN productos_tiempos pt ON c.producto = pt.codigo
+                 LEFT JOIN productos_tiempos pt ON c.producto = pt.cod_proceso
                  WHERE (c.orden_id = ? OR c.id = ?) 
                  AND c.estatus IN ('cortada', 'asignacion parcial')`,
                 [orden_id, orden_id]
@@ -50,31 +50,31 @@ export async function POST(request: Request) {
                 return NextResponse.json({ success: false, message: 'Esta orden ya fue completamente asignada.' }, { status: 400 })
             }
 
-            // 3. Validar operadores disponibles calculando sus minutos libres (Límite: 480 min)
+            // 3. Validar operadores disponibles calculando sus segundos libres (límite: 8 horas)
             const [operadoresRows]: any = await connection.query(`
                 SELECT 
                     u.id AS usuario_id, 
                     u.nombre,
-                    COALESCE(SUM(a.cantidad_asignada * IFNULL(pt.tiempo, 0)), 0) AS minutos_ocupados
+                    COALESCE(SUM(a.cantidad_asignada * IFNULL(pt.t_costura, 0)), 0) AS segundos_ocupados
                 FROM usuarios u
                 JOIN operadores_disponibilidad d ON u.id = d.usuario_id
                 LEFT JOIN admin_costura_asignaciones a 
                     ON a.id_operador = u.id AND a.estatus NOT IN ('completado', 'terminado', 'entregado')
                 LEFT JOIN productos_tiempos pt 
-                    ON a.producto = pt.codigo
+                    ON a.producto = pt.cod_proceso
                 WHERE u.tipo_usuario = 'operador' 
                   AND d.disponible_hasta > NOW()
                 GROUP BY u.id, u.nombre
-                HAVING minutos_ocupados < 480
+                HAVING segundos_ocupados < 28800
             `)
 
             let operadores = operadoresRows.map((op: any) => {
-                const maxMinutos = 480;
-                const minOcupados = Number(op.minutos_ocupados) || 0;
-                const libres = maxMinutos - minOcupados;
+                const maxSegundos = 480 * 60;
+                const segundosOcupados = Number(op.segundos_ocupados) || 0;
+                const libres = maxSegundos - segundosOcupados;
                 
                 let capacidadPiezas = 0;
-                if (tiempoUnidad > 480) {
+                if (tiempoUnidad > maxSegundos) {
                     // Regla especial: si la pieza toma más de 8 horas, se asigna solo 1 a cada operador libre
                     capacidadPiezas = 1;
                 } else if (tiempoUnidad > 0) {

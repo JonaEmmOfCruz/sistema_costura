@@ -10,8 +10,13 @@ export async function POST(request: Request) {
 
         if (accion === 'agregar') {
             await pool.query(
-                `INSERT INTO productos_tiempos (modelo, nombre, codigo, nombre_secundario, costura, tiempo) VALUES (?, ?, ?, ?, ?, ?)`,
-                [modelo, nombre, codigo, nombre_secundario, costura, tiempo]
+                `INSERT INTO productos_tiempos (cod_proceso, descripcion, costura, t_costura)
+                 VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    descripcion = VALUES(descripcion),
+                    costura = VALUES(costura),
+                    t_costura = VALUES(t_costura)`,
+                [codigo, nombre_secundario || nombre || modelo || '', costura, tiempo]
             )
             return NextResponse.json({ success: true, message: 'Producto agregado correctamente.' })
         }
@@ -34,7 +39,7 @@ export async function PUT(request: Request) {
             }
 
             const [result]: any = await pool.query(
-                `UPDATE productos_tiempos SET tiempo = ? WHERE nombre = ?`,
+                `UPDATE productos_tiempos SET t_costura = ? WHERE descripcion = ?`,
                 [tiempo, nombre]
             )
 

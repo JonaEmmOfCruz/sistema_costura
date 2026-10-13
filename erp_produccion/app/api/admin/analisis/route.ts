@@ -8,15 +8,15 @@ export const dynamic = "force-dynamic";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
 const PRODUCT_TIME_JOIN = `LEFT JOIN (
-    SELECT codigo, MAX(
+    SELECT cod_proceso, MAX(
         CASE
-            WHEN tiempo REGEXP '^[0-9]+([.][0-9]+)?$' THEN CAST(tiempo AS DECIMAL(12, 2))
+            WHEN t_costura IS NOT NULL THEN CAST(t_costura AS DECIMAL(12, 2))
             ELSE NULL
         END
     ) AS tiempo_segundos
     FROM productos_tiempos
-    GROUP BY codigo
-) AS pt ON pt.codigo = t.producto`;
+    GROUP BY cod_proceso
+) AS pt ON pt.cod_proceso = t.producto`;
 
 interface JwtAdminPayload extends jwt.JwtPayload {
     jti?: string;

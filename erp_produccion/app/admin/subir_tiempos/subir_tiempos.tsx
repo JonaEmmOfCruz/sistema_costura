@@ -142,7 +142,7 @@ export default function SubirTiemposProductosPage() {
     }
 
     // Obtener lista única de nombres para el select de modificación masiva
-    const nombresUnicos = Array.from(new Set(productos.map(p => p.nombre))).filter(Boolean)
+    const nombresUnicos = Array.from(new Set(productos.map(p => p.descripcion))).filter(Boolean)
 
     // Lógica para alternar selecciones de checkbox en el filtro
     const toggleFilterOption = (fieldKey: string, optionValue: string) => {
@@ -294,28 +294,60 @@ export default function SubirTiemposProductosPage() {
             )
         },
         {
-            header: <FilterHeaderModal title="Modelo" fieldKey="modelo" />,
-            accessorKey: 'modelo'
+            header: <FilterHeaderModal title="Código de proceso" fieldKey="cod_proceso" />,
+            accessorKey: 'cod_proceso'
         },
         {
-            header: <FilterHeaderModal title="Nombre" fieldKey="nombre" />,
-            accessorKey: 'nombre'
-        },
-        {
-            header: <FilterHeaderModal title="Código" fieldKey="codigo" />,
-            accessorKey: 'codigo'
-        },
-        {
-            header: <FilterHeaderModal title="Producto" fieldKey="nombre_secundario" />,
-            accessorKey: 'nombre_secundario'
+            header: <FilterHeaderModal title="Descripción" fieldKey="descripcion" />,
+            accessorKey: 'descripcion'
         },
         {
             header: <FilterHeaderModal title="Costura" fieldKey="costura" />,
             accessorKey: 'costura'
         },
         {
-            header: <FilterHeaderModal title="Tiempo" fieldKey="tiempo" />,
-            accessorKey: 'tiempo'
+            header: <FilterHeaderModal title="Tiempo costura (segundos)" fieldKey="t_costura" />,
+            accessorKey: 't_costura'
+        },
+        {
+            header: <FilterHeaderModal title="Tapizado" fieldKey="tapizado" />,
+            accessorKey: 'tapizado'
+        },
+        {
+            header: <FilterHeaderModal title="Tiempo tapizado" fieldKey="t_tapizado" />,
+            accessorKey: 't_tapizado'
+        },
+        {
+            header: <FilterHeaderModal title="Armado" fieldKey="armado" />,
+            accessorKey: 'armado'
+        },
+        {
+            header: <FilterHeaderModal title="Tiempo armado" fieldKey="t_armado" />,
+            accessorKey: 't_armado'
+        },
+        {
+            header: <FilterHeaderModal title="Montado" fieldKey="montado" />,
+            accessorKey: 'montado'
+        },
+        {
+            header: <FilterHeaderModal title="Tiempo montado" fieldKey="t_montado" />,
+            accessorKey: 't_montado'
+        },
+        {
+            header: <FilterHeaderModal title="Empaque" fieldKey="empaque" />,
+            accessorKey: 'empaque'
+        },
+        {
+            header: <FilterHeaderModal title="Tiempo empaque" fieldKey="t_empaque" />,
+            accessorKey: 't_empaque'
+        },
+        {
+            header: <FilterHeaderModal title="Corte" fieldKey="corte" />,
+            accessorKey: 'corte'
+        },
+        {
+            header: <FilterHeaderModal title="Tiempo corte" fieldKey="t_corte" />,
+            accessorKey: 't_corte'
         }
     ]
 
@@ -348,7 +380,7 @@ export default function SubirTiemposProductosPage() {
                     <div onDrop={handleDrop} onDragOver={handleDragOver} className="border-2 border-dashed border-gray-200 hover:border-slate-500 transition-colors rounded-3xl p-10 text-center bg-slate-50 shadow-sm relative cursor-pointer group">
                         <input
                             type="file"
-                            accept=".xlsx, .xls, .csv"
+                            accept=".xltx, .xlsx, .xls, .csv"
                             onChange={handleFileChange}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                         />
@@ -367,7 +399,7 @@ export default function SubirTiemposProductosPage() {
                                     <p className="text-sm font-medium text-gray-700">
                                         Arrastra tu archivo aquí, o <span className="text-slate-600 uppercase">busca en tu equipo</span>
                                     </p>
-                                    <p className="text-xs text-gray-400 mt-1">Formatos soportados: .xlsx, .xls, .csv</p>
+                                    <p className="text-xs text-gray-400 mt-1">Formatos soportados: .xltx, .xlsx, .xls, .csv. El archivo Productos carga código, descripción y tiempo de costura en segundos.</p>
                                 </div>
                             )}
 
@@ -528,8 +560,8 @@ export default function SubirTiemposProductosPage() {
                 <ReusableTable
                     data={productosFiltrados}
                     columns={columns}
-                    searchField='nombre'
-                    searchPlaceholder="Buscar por nombre..."
+                    searchField='descripcion'
+                    searchPlaceholder="Buscar por código o descripción..."
                 />
             </div>
         </div>

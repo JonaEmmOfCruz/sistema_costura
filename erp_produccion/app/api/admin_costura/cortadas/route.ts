@@ -13,7 +13,7 @@ export async function GET() {
                     WHEN c.estatus = 'asignacion parcial' THEN 'asignacion parcial'
                     ELSE c.estatus
                 END AS estatus,
-                pt.tiempo AS tiempo_base,
+                pt.t_costura AS tiempo_base,
                 o.prioridad
             FROM admin_costura_cortes c
             LEFT JOIN admin_costura_ordenes o ON c.orden_id = o.id
@@ -22,7 +22,7 @@ export async function GET() {
                 FROM admin_costura_asignaciones
                 GROUP BY orden_id
             ) a ON COALESCE(c.orden_id, c.id) = a.orden_id -- JOIN MÁS SEGURO POR ID
-            LEFT JOIN productos_tiempos pt ON c.producto = pt.codigo
+            LEFT JOIN productos_tiempos pt ON c.producto = pt.cod_proceso
             ORDER BY c.id DESC
         `)
 
