@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
@@ -15,11 +15,18 @@ interface PeticionTiempo {
     fecha_solicitud?: string;
 }
 
+interface ProductoTiempo {
+    [key: string]: string | number | null | undefined
+    cod_proceso?: string | null
+    descripcion?: string | null
+    t_costura?: number | string | null
+}
+
 export default function SubirTiemposProductosPage() {
     const [file, setFile] = useState<File | null>(null)
     const [loading, setLoading] = useState(false)
     const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-    const [productos, setProductos] = useState<any[]>([])
+    const [productos, setProductos] = useState<ProductoTiempo[]>([])
 
     // Estado para la lista de peticiones de la BD
     const [peticiones, setPeticiones] = useState<PeticionTiempo[]>([])
@@ -128,21 +135,28 @@ export default function SubirTiemposProductosPage() {
     })
 
     // FILTRADO AUTOMÁTICO: Oculta peticiones que ya tengan un tiempo registrado en la tabla de productos
-    const peticionesPendientes = peticiones.filter(peticion => {
-        const yaTieneTiempo = productos.some(prod => {
-            const coincideCodigo = prod.cod_proceso && peticion.codigo &&
-                String(prod.cod_proceso).trim().toLowerCase() === String(peticion.codigo).trim().toLowerCase();
-            
-            const coincideNombre = prod.descripcion && peticion.nombre_secundario &&
-                String(prod.descripcion).trim().toLowerCase() === String(peticion.nombre_secundario).trim().toLowerCase();
+    const peticionesPendientes = useMemo(() => {
+        const codigosConTiempo = new Set<string>()
+        const nombresConTiempo = new Set<string>()
 
-            const tieneTiempoValido = Number(prod.t_costura) > 0;
+        for (const producto of productos) {
+            if (!(Number(producto.t_costura) > 0)) continue
+            if (producto.cod_proceso) {
+                codigosConTiempo.add(String(producto.cod_proceso).trim().toLowerCase())
+            }
+            if (producto.descripcion) {
+                nombresConTiempo.add(String(producto.descripcion).trim().toLowerCase())
+            }
+        }
 
-            return (coincideCodigo || coincideNombre) && tieneTiempoValido;
-        });
-
-        return !yaTieneTiempo;
-    });
+        return peticiones.filter(peticion => {
+            const coincideCodigo = Boolean(peticion.codigo)
+                && codigosConTiempo.has(String(peticion.codigo).trim().toLowerCase())
+            const coincideNombre = Boolean(peticion.nombre_secundario)
+                && nombresConTiempo.has(String(peticion.nombre_secundario).trim().toLowerCase())
+            return !coincideCodigo && !coincideNombre
+        })
+    }, [peticiones, productos])
 
     // BÚSQUEDA AUTOMÁTICA Y ANIMACIÓN AL SELECCIONAR UNA PETICIÓN
     const handleAsignarTiempoClick = async (peticion: PeticionTiempo) => {

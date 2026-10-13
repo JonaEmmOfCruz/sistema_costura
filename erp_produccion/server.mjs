@@ -27,6 +27,7 @@ const readOnlyPostPaths = new Set([
   '/api/reportes/dinamicos',
   '/api/productos/buscar_modelo',
 ])
+const autoAssignPath = '/api/admin_costura/auto_asignar'
 
 const httpServer = createServer((request, response) => {
   const pathname = new URL(request.url || '/', 'http://localhost').pathname
@@ -38,13 +39,18 @@ const httpServer = createServer((request, response) => {
   ) {
     response.once('finish', () => {
       if (
+        pathname === autoAssignPath &&
+        request.headers['x-internal-auto-assign'] === '1'
+      ) return
+
+      if (
         response.statusCode < 200 ||
         response.statusCode >= 300 ||
         readOnlyPostPaths.has(pathname)
       ) return
 
       const notifyClients = () => {
-        io.emit('data:changed', { path: pathname, method })
+        io.volatile.emit('data:changed', { path: pathname, method })
       }
 
       if (notifyOnlyPaths.has(pathname)) {
@@ -54,7 +60,10 @@ const httpServer = createServer((request, response) => {
 
       if (autoAssignPaths.has(pathname)) {
         const baseUrl = `http://127.0.0.1:${port}`
-        fetch(`${baseUrl}/api/admin_costura/auto_asignar`, { method: 'POST' })
+        fetch(`${baseUrl}${autoAssignPath}`, {
+          method: 'POST',
+          headers: { 'x-internal-auto-assign': '1' },
+        })
           .then(async (result) => {
             if (!result.ok) {
               console.error('No se pudo ejecutar la auto-asignación tras actualizar datos:', result.status)

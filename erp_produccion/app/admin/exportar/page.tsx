@@ -178,8 +178,14 @@ export default function AdminDataExportPage() {
                 cell.border = { bottom: { style: 'thin', color: { argb: 'FF94A3B8' } } }
             })
 
+            const columnWidths = table.columns.map(column => column.length)
             for (const values of table.rows) {
-                const row = worksheet.addRow(values.map(excelCellValue))
+                const excelValues = values.map((value, index) => {
+                    const excelValue = excelCellValue(value)
+                    columnWidths[index] = Math.max(columnWidths[index] ?? 0, cellText(excelValue).length)
+                    return excelValue
+                })
+                const row = worksheet.addRow(excelValues)
                 row.eachCell({ includeEmpty: true }, cell => {
                     cell.border = { bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } } }
                     cell.alignment = { vertical: 'top', wrapText: true }
@@ -191,12 +197,9 @@ export default function AdminDataExportPage() {
                 to: { row: Math.max(6, table.rows.length + 6), column: Math.max(1, table.columns.length) },
             }
 
-            worksheet.columns = table.columns.map((column, index) => {
-                const longestValue = table.rows.reduce((longest, row) => {
-                    return Math.max(longest, cellText(row[index]).length)
-                }, column.length)
-                return { width: Math.max(12, Math.min(36, longestValue + 2)) }
-            })
+            worksheet.columns = columnWidths.map(longestValue => ({
+                width: Math.max(12, Math.min(36, longestValue + 2)),
+            }))
         }
 
         const buffer = await workbook.xlsx.writeBuffer()

@@ -5,13 +5,14 @@ import { useEffect, useRef } from 'react'
 export default function useRealtimeRefresh(refresh: () => void | Promise<void>) {
     const refreshRef = useRef(refresh)
     const refreshState = useRef({ running: false, pending: false })
+    const refreshTimer = useRef<number | null>(null)
 
     useEffect(() => {
         refreshRef.current = refresh
     }, [refresh])
 
     useEffect(() => {
-        const handleDataChanged = async () => {
+        const runRefresh = async () => {
             if (refreshState.current.running) {
                 refreshState.current.pending = true
                 return
@@ -30,7 +31,23 @@ export default function useRealtimeRefresh(refresh: () => void | Promise<void>) 
             refreshState.current.running = false
         }
 
+        const handleDataChanged = () => {
+            if (refreshTimer.current !== null) {
+                window.clearTimeout(refreshTimer.current)
+            }
+            refreshTimer.current = window.setTimeout(() => {
+                refreshTimer.current = null
+                void runRefresh()
+            }, 100)
+        }
+
         window.addEventListener('app:data-changed', handleDataChanged)
-        return () => window.removeEventListener('app:data-changed', handleDataChanged)
+        return () => {
+            window.removeEventListener('app:data-changed', handleDataChanged)
+            if (refreshTimer.current !== null) {
+                window.clearTimeout(refreshTimer.current)
+                refreshTimer.current = null
+            }
+        }
     }, [])
 }

@@ -1,13 +1,19 @@
 'use client'
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import AreaCard from "@/components/AreaCard"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 import useLatestRequest from "@/lib/useLatestRequest"
 
+interface AsignacionOperador {
+    nombre_operador?: string | null
+    estatus?: string | null
+    [key: string]: unknown
+}
+
 export default function OperadoresPage() {
     const [loading, setLoading] = useState(true)
     const [operadores, setOperadores] = useState<any[]>([])
-    const [asignadas, setAsignadas] = useState([])
+    const [asignadas, setAsignadas] = useState<AsignacionOperador[]>([])
     const isLatestRequest = useLatestRequest()
 
     const cargarOperadores = async () => {
@@ -106,9 +112,26 @@ export default function OperadoresPage() {
         await Promise.all([cargarOperadores(), cargarOrdenes(false)])
     })
 
+    const ordenesPorOperador = useMemo(() => {
+        const ordenes = new Map<string | null | undefined, AsignacionOperador[]>()
+        for (const asignacion of asignadas) {
+            if (asignacion.estatus === 'TERMINADO' || asignacion.estatus === 'completado') continue
+            const operador = asignacion.nombre_operador
+            const ordenesOperador = ordenes.get(operador)
+            if (ordenesOperador) {
+                ordenesOperador.push(asignacion)
+            } else {
+                ordenes.set(operador, [asignacion])
+            }
+        }
+        return ordenes
+    }, [asignadas])
+
     if (loading) {
         return <div className="text-center py-10 text-gray-400 text-sm">Cargando operadores...</div>
     }
+
+    const ahora = new Date()
 
     return (
         <div className="mx-auto space-y-6 p-6">
@@ -123,14 +146,11 @@ export default function OperadoresPage() {
                 {/* Renderizamos a los operadores exactamente en el orden de la base de datos */}
                 {operadores.map((op) => {
                     // Calculamos si sigue disponible evaluando la fecha de expiración
-                    const ahora = new Date()
                     const expira = op.disponible_hasta ? new Date(op.disponible_hasta) : null
                     const estaDisponible = expira ? expira > ahora : false
 
                     // Filtrar órdenes asignadas a este operador (que no estén terminadas)
-                    const ordenesAsignadas = asignadas.filter(
-                        (a: any) => a.nombre_operador === op.nombre && a.estatus !== 'TERMINADO' && a.estatus !== 'completado'
-                    )
+                    const ordenesAsignadas = ordenesPorOperador.get(op.nombre) ?? []
 
                     return (
                         <AreaCard

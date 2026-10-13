@@ -4,6 +4,47 @@ import { Icon } from "@iconify/react"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 import useLatestRequest from "@/lib/useLatestRequest"
 
+function formatTiempo(seg: number) {
+    const h = Math.floor(seg / 3600)
+    const m = Math.floor((seg % 3600) / 60).toString().padStart(2, '0')
+    const s = (seg % 60).toString().padStart(2, '0')
+    return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`
+}
+
+function TiempoCostura({
+    inicioSesion,
+    segundosAcumulados,
+    activo,
+    segundosRef,
+}: {
+    inicioSesion: number
+    segundosAcumulados: number
+    activo: boolean
+    segundosRef: { current: number }
+}) {
+    const [segundos, setSegundos] = useState(segundosAcumulados)
+
+    useEffect(() => {
+        const actualizar = () => {
+            const valor = segundosAcumulados + (
+                activo && inicioSesion
+                    ? Math.max(0, Math.floor((Date.now() - inicioSesion) / 1000))
+                    : 0
+            )
+            segundosRef.current = valor
+            setSegundos(valor)
+        }
+
+        actualizar()
+        if (!activo) return
+
+        const intervalo = window.setInterval(actualizar, 1000)
+        return () => window.clearInterval(intervalo)
+    }, [activo, inicioSesion, segundosAcumulados, segundosRef])
+
+    return <p className="mt-0.5 font-mono text-3xl font-bold leading-none tabular-nums sm:text-4xl">{formatTiempo(segundos)}</p>
+}
+
 const PREFIJOS_PRIORITARIOS = [
     "103-070", "103-046", "202-070", "102-070", "102-020",
     "102-019", "102-160", "102-139", "102-137", "102-136",
@@ -22,7 +63,7 @@ export default function OperadorPage() {
     const [asignacionesBloqueadas, setAsignacionesBloqueadas] = useState<any[]>([])
     const [mostrarAlerta, setMostrarAlerta] = useState(false)
     const [alertaCambioPrioritario, setAlertaCambioPrioritario] = useState(false)
-    const [segundos, setSegundos] = useState<number>(0)
+    const segundosRef = useRef(0)
     const [costuraActiva, setCosturaActiva] = useState(false)
     const [loadingTerminar, setLoadingTerminar] = useState(false)
     const asignacionActivaId = useRef<number | null>(null)
@@ -133,7 +174,7 @@ export default function OperadorPage() {
                         ? Math.max(0, Math.floor((Date.now() - inicioSesion) / 1000))
                         : 0
 
-                    setSegundos(segundosAcumulados + segundosEnSesion)
+                    segundosRef.current = segundosAcumulados + segundosEnSesion
                     setCosturaActiva(inicioSesion > 0)
                     setAlertaCambioPrioritario(cambioAOrdenPrioritaria)
                     setMostrarAlerta(cambioAOrdenPrioritaria || (esNuevaAsignacion && inicioSesion === 0))
@@ -142,7 +183,7 @@ export default function OperadorPage() {
                     asignacionAnteriorRef.current = null
                     setAsignacion(null)
                     setCosturaActiva(false)
-                    setSegundos(0)
+                    segundosRef.current = 0
                     setMostrarAlerta(false)
                     setAlertaCambioPrioritario(false)
                 }
@@ -152,7 +193,7 @@ export default function OperadorPage() {
                 asignacionActivaId.current = null
                 asignacionAnteriorRef.current = null
                 setCosturaActiva(false)
-                setSegundos(0)
+                segundosRef.current = 0
                 setMostrarAlerta(false)
                 setAlertaCambioPrioritario(false)
             }
@@ -160,29 +201,6 @@ export default function OperadorPage() {
             console.error("Error al cargar asignación:", error)
         }
     }
-
-    // El temporizador se calcula desde los intervalos persistidos en la base de datos.
-    useEffect(() => {
-        if (!costuraActiva || !asignacion) return
-
-        const actualizarTemporizador = () => {
-            const inicioSesion = Number(asignacion.inicio_sesion_ms) || 0
-            const segundosAcumulados = Number(asignacion.segundos_acumulados) || 0
-            const segundosEnSesion = inicioSesion
-                ? Math.max(0, Math.floor((Date.now() - inicioSesion) / 1000))
-                : 0
-            setSegundos(segundosAcumulados + segundosEnSesion)
-        }
-
-        actualizarTemporizador()
-        const intervalo = window.setInterval(actualizarTemporizador, 1000)
-        return () => window.clearInterval(intervalo)
-    }, [
-        asignacion?.id,
-        asignacion?.inicio_sesion_ms,
-        asignacion?.segundos_acumulados,
-        costuraActiva
-    ])
 
     const iniciarCostura = async () => {
         if (!asignacion) return
@@ -218,7 +236,7 @@ export default function OperadorPage() {
                     id_asignacion: asignacion.id,
                     asignacion_id: asignacion.id,
                     fecha_fin: fechaFinActual,
-                    tiempo_segundos: segundos,
+                    tiempo_segundos: segundosRef.current,
                     tipo: 'operador'
                 })
             })
@@ -227,7 +245,7 @@ export default function OperadorPage() {
 
             if (res.ok && data.success) {
                 setCosturaActiva(false)
-                setSegundos(0)
+                segundosRef.current = 0
                 setAsignacion(null)
                 setManual(null)
 
@@ -243,14 +261,6 @@ export default function OperadorPage() {
         } finally {
             setLoadingTerminar(false)
         }
-    }
-
-    // Formateador de tiempo a HH:MM:SS o MM:SS
-    const formatTiempo = (seg: number) => {
-        const h = Math.floor(seg / 3600)
-        const m = Math.floor((seg % 3600) / 60).toString().padStart(2, '0')
-        const s = (seg % 60).toString().padStart(2, '0')
-        return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`
     }
 
     if (!user) {
@@ -279,7 +289,7 @@ export default function OperadorPage() {
     return (
         <div className="min-h-[calc(100vh-4rem)] w-full box-border bg-slate-100 px-3 py-4 sm:px-6">
             {mostrarAlerta && asignacion && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm" role="alertdialog" aria-modal="true">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4" role="alertdialog" aria-modal="true">
                     <div className="w-full max-w-md animate-in fade-in zoom-in rounded-2xl bg-white p-6 text-center shadow-2xl">
                         <div className={`mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl ${alertaCambioPrioritario ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
                             <Icon icon={alertaCambioPrioritario ? "lucide:triangle-alert" : "lucide:bell"} className="text-2xl" />
@@ -359,7 +369,12 @@ export default function OperadorPage() {
                                     <p className={`text-[9px] font-bold uppercase tracking-[0.16em] ${costuraActiva ? 'text-emerald-300' : 'text-slate-400'}`}>
                                         {costuraActiva ? 'Tiempo activo' : 'Tiempo acumulado'}
                                     </p>
-                                    <p className="mt-0.5 font-mono text-3xl font-bold leading-none tabular-nums sm:text-4xl">{formatTiempo(segundos)}</p>
+                                    <TiempoCostura
+                                        inicioSesion={Number(asignacion.inicio_sesion_ms) || 0}
+                                        segundosAcumulados={Number(asignacion.segundos_acumulados) || 0}
+                                        activo={costuraActiva}
+                                        segundosRef={segundosRef}
+                                    />
                                 </div>
                                 {!costuraActiva ? (
                                     <button

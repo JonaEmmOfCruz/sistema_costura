@@ -20,6 +20,18 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Ejecución en equipos con pocos recursos
+
+Para reducir la memoria que usa el servidor al arrancar, activa el modo de bajo consumo al iniciar la aplicación:
+
+```bash
+LOW_RESOURCE_MODE=true pnpm start
+```
+
+También puedes definir `LOW_RESOURCE_MODE=true` en el entorno del servicio que ejecuta la aplicación. En este modo Next.js carga las rutas bajo demanda en vez de precargarlas todas al iniciar; la primera visita a una ruta puede tardar un poco más. Durante `next dev`, Turbopack libera con mayor frecuencia la memoria de su caché persistente. Si no defines la variable, se conserva la precarga predeterminada y la política automática de caché para priorizar la respuesta en servidores con más recursos.
+
+En pantallas de hasta 1024 px se reducen animaciones y transiciones decorativas; en dispositivos táctiles los controles tienen un área mínima de 44 px. Los cronómetros de costura y corte se actualizan en componentes aislados para que el resto de la pantalla no se vuelva a renderizar cada segundo.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

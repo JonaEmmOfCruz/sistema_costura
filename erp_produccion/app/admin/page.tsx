@@ -1,6 +1,17 @@
 'use client'
-import ProductionAnalyticsDashboard from "@/components/ProductionAnalyticsDashboard"
+import dynamic from "next/dynamic"
 import { useEffect, useState } from "react"
+
+const ProductionAnalyticsDashboard = dynamic(
+    () => import("@/components/ProductionAnalyticsDashboard"),
+    {
+        loading: () => (
+            <div className="mt-8 flex h-96 items-center justify-center rounded-2xl border border-slate-200 bg-white text-sm text-slate-500">
+                Cargando análisis de producción...
+            </div>
+        ),
+    },
+)
 
 interface AdminUser {
     nombre: string

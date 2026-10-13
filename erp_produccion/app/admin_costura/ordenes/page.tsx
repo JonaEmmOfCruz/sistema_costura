@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
@@ -28,6 +28,39 @@ const PREFIJOS_PRIORITARIOS = [
 
 const MOTIVOS_ESPERA = ['No hay tela', 'Problema de calidad', 'Cambio de fecha'] as const
 
+function TiempoCorte({
+    inicioMs,
+    segundosIniciales,
+    segundosRef,
+}: {
+    inicioMs: number | null
+    segundosIniciales: number
+    segundosRef: { current: number }
+}) {
+    const [segundos, setSegundos] = useState(segundosIniciales)
+
+    useEffect(() => {
+        if (!inicioMs) {
+            segundosRef.current = segundosIniciales
+            setSegundos(segundosIniciales)
+            return
+        }
+
+        const actualizar = () => {
+            const valor = Math.max(0, Math.floor((Date.now() - inicioMs) / 1000))
+            segundosRef.current = valor
+            setSegundos(valor)
+        }
+        actualizar()
+        const intervalo = window.setInterval(actualizar, 1000)
+        return () => window.clearInterval(intervalo)
+    }, [inicioMs, segundosIniciales, segundosRef])
+
+    const minutos = Math.floor(segundos / 60)
+    const segundosRestantes = segundos % 60
+    return <span className="text-3xl font-mono font-bold">{`${minutos.toString().padStart(2, '0')}:${segundosRestantes.toString().padStart(2, '0')}`}</span>
+}
+
 const esPrioritario = (row: any) => {
     const textoProducto = String(row.producto || '').trim();
     const textoNombre = String(row.nombre || '').trim();
@@ -37,52 +70,11 @@ const esPrioritario = (row: any) => {
     );
 };
 
-// COMPONENTE DE DIBUJO ANIMADO DE CONSTRUCCIÓN DE SILLA
+// Ilustración estática de construcción de silla.
 function AnimacionArmadoSilla() {
     return (
         <div className="flex items-center justify-center h-10 w-full overflow-hidden">
             <svg viewBox="0 0 400 120" className="h-full w-auto">
-                <style>{`
-                    @keyframes caerBase {
-                        0%, 10% { transform: translateY(-40px); opacity: 0; }
-                        20%, 90% { transform: translateY(0); opacity: 1; }
-                        100% { opacity: 0; }
-                    }
-                    @keyframes caerPiston {
-                        0%, 20% { transform: translateY(-40px); opacity: 0; }
-                        30%, 90% { transform: translateY(0); opacity: 1; }
-                        100% { opacity: 0; }
-                    }
-                    @keyframes caerAsiento {
-                        0%, 35% { transform: translateY(-40px); opacity: 0; }
-                        45%, 90% { transform: translateY(0); opacity: 1; }
-                        100% { opacity: 0; }
-                    }
-                    @keyframes caerRespaldo {
-                        0%, 50% { transform: translateY(-40px); opacity: 0; }
-                        60%, 90% { transform: translateY(0); opacity: 1; }
-                        100% { opacity: 0; }
-                    }
-                    @keyframes caerBrazos {
-                        0%, 65% { transform: translateY(-40px); opacity: 0; }
-                        75%, 90% { transform: translateY(0); opacity: 1; }
-                        100% { opacity: 0; }
-                    }
-                    @keyframes destelloFinal {
-                        0%, 78% { opacity: 0; transform: scale(0.5); }
-                        82% { opacity: 1; transform: scale(1.2); }
-                        90% { opacity: 0; transform: scale(1.5); }
-                        100% { opacity: 0; }
-                    }
-
-                    .anim-base { animation: caerBase 4s infinite cubic-bezier(0.34, 1.56, 0.64, 1); origin: center; }
-                    .anim-piston { animation: caerPiston 4s infinite cubic-bezier(0.34, 1.56, 0.64, 1); }
-                    .anim-asiento { animation: caerAsiento 4s infinite cubic-bezier(0.34, 1.56, 0.64, 1); }
-                    .anim-respaldo { animation: caerRespaldo 4s infinite cubic-bezier(0.34, 1.56, 0.64, 1); }
-                    .anim-brazos { animation: caerBrazos 4s infinite cubic-bezier(0.34, 1.56, 0.64, 1); }
-                    .anim-destello { animation: destelloFinal 4s infinite ease-out; transform-origin: 200px 50px; }
-                `}</style>
-
                 {/* 1. Base / Ruedas */}
                 <g className="anim-base">
                     <ellipse cx="200" cy="105" rx="35" ry="6" fill="#cbd5e1" />
@@ -132,8 +124,9 @@ export default function AdminCosturaOrdenesPage() {
     const [ordenSeleccionadaEspera, setOrdenSeleccionadaEspera] = useState<number | null>(null)
     const [motivoEspera, setMotivoEspera] = useState<(typeof MOTIVOS_ESPERA)[number] | ''>('')
     const [actualizandoEsperaId, setActualizandoEsperaId] = useState<number | null>(null)
-    const [segundosTranscurridos, setSegundosTranscurridos] = useState(0)
-    const [temporizadorActivo, setTemporizadorActivo] = useState(false)
+    const segundosTranscurridosRef = useRef(0)
+    const [inicioCorteMs, setInicioCorteMs] = useState<number | null>(null)
+    const [segundosIniciales, setSegundosIniciales] = useState(0)
     const isLatestRequest = useLatestRequest()
 
     const cargarOrdenes = async (mostrarCarga = true) => {
@@ -149,19 +142,25 @@ export default function AdminCosturaOrdenesPage() {
 
                 const enProceso = data.ordenes.find((o: any) => o.estado === 'corte en proceso')
                 setOrdenEnCorte(enProceso || null)
-                setTemporizadorActivo(Boolean(enProceso))
-
                 if (enProceso) {
                     const inicioGuardado = localStorage.getItem(`corte_inicio_${enProceso.id}`)
                     if (inicioGuardado) {
                         const segundosCalculados = Math.floor((Date.now() - Number(inicioGuardado)) / 1000)
-                        setSegundosTranscurridos(segundosCalculados > 0 ? segundosCalculados : 0)
+                        const segundosActuales = segundosCalculados > 0 ? segundosCalculados : 0
+                        segundosTranscurridosRef.current = segundosActuales
+                        setSegundosIniciales(segundosActuales)
+                        setInicioCorteMs(Number(inicioGuardado))
                     } else {
-                        localStorage.setItem(`corte_inicio_${enProceso.id}`, Date.now().toString())
-                        setSegundosTranscurridos(0)
+                        const inicio = Date.now()
+                        localStorage.setItem(`corte_inicio_${enProceso.id}`, inicio.toString())
+                        segundosTranscurridosRef.current = 0
+                        setSegundosIniciales(0)
+                        setInicioCorteMs(inicio)
                     }
                 } else {
-                    setSegundosTranscurridos(0)
+                    segundosTranscurridosRef.current = 0
+                    setSegundosIniciales(0)
+                    setInicioCorteMs(null)
                 }
             }
         } catch (error) {
@@ -176,18 +175,6 @@ export default function AdminCosturaOrdenesPage() {
     }, [])
 
     useRealtimeRefresh(() => cargarOrdenes(false))
-
-    useEffect(() => {
-        let intervalo: any = null;
-        if (temporizadorActivo) {
-            intervalo = setInterval(() => {
-                setSegundosTranscurridos(prev => prev + 1)
-            }, 1000)
-        } else {
-            clearInterval(intervalo)
-        }
-        return () => clearInterval(intervalo)
-    }, [temporizadorActivo])
 
     const handleEnviarAPapeleraIndividual = async (id: number) => {
         if (ordenEnCorte && ordenEnCorte.id === id) {
@@ -227,9 +214,11 @@ export default function AdminCosturaOrdenesPage() {
             const data = await res.json()
             if (res.ok && data.success) {
                 setOrdenEnCorte(orden)
-                setSegundosTranscurridos(0)
-                setTemporizadorActivo(true)
-                localStorage.setItem(`corte_inicio_${orden.id}`, Date.now().toString())
+                segundosTranscurridosRef.current = 0
+                setSegundosIniciales(0)
+                const inicio = Date.now()
+                setInicioCorteMs(inicio)
+                localStorage.setItem(`corte_inicio_${orden.id}`, inicio.toString())
                 await cargarOrdenes(false)
             } else {
                 alert(data.message || 'No se pudo iniciar el corte.')
@@ -246,14 +235,15 @@ export default function AdminCosturaOrdenesPage() {
             const res = await fetch('/api/admin_costura/corte/finalizar', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orden_id: ordenEnCorte.id, segundos: segundosTranscurridos })
+                body: JSON.stringify({ orden_id: ordenEnCorte.id, segundos: segundosTranscurridosRef.current })
             })
             const data = await res.json()
             if (res.ok && data.success) {
                 localStorage.removeItem(`corte_inicio_${ordenEnCorte.id}`)
                 setOrdenEnCorte(null)
-                setTemporizadorActivo(false)
-                setSegundosTranscurridos(0)
+                segundosTranscurridosRef.current = 0
+                setSegundosIniciales(0)
+                setInicioCorteMs(null)
                 await cargarOrdenes(false)
             } else {
                 alert(data.message || 'No se pudo finalizar el corte.')
@@ -286,12 +276,6 @@ export default function AdminCosturaOrdenesPage() {
         } finally {
             setActualizandoEsperaId(null)
         }
-    }
-
-    const formatTiempo = (segundos: number) => {
-        const mins = Math.floor(segundos / 60)
-        const secs = segundos % 60
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
     }
 
     const ordenesOrdenadas = [...ordenes].sort((a, b) => {
@@ -446,7 +430,11 @@ export default function AdminCosturaOrdenesPage() {
                     <div className="flex items-center gap-6">
                         <div className="text-center">
                             <span className="text-xs text-blue-300 block">Tiempo transcurrido</span>
-                            <span className="text-3xl font-mono font-bold">{formatTiempo(segundosTranscurridos)}</span>
+                            <TiempoCorte
+                                inicioMs={inicioCorteMs}
+                                segundosIniciales={segundosIniciales}
+                                segundosRef={segundosTranscurridosRef}
+                            />
                         </div>
                         <button 
                             onClick={finalizarCorte}
@@ -459,7 +447,7 @@ export default function AdminCosturaOrdenesPage() {
             )}
 
             <div>
-                {/* DIBUJO ANIMADO DE ARMADO EN EL ESPACIO LIBRE */}
+                {/* Ilustración estática para evitar animaciones continuas en la terminal. */}
                 <div className="w-full flex justify-center items-center py-1 mb-2">
                     <AnimacionArmadoSilla />
                 </div>
