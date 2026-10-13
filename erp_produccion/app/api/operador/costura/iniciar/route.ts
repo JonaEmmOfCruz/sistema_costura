@@ -13,8 +13,16 @@ interface OperatorAssignmentRow extends RowDataPacket {
 }
 
 interface OpenTimingSessionRow extends RowDataPacket {
+    id: number
     op: string
 }
+
+interface OperatorAssignmentStatusRow extends RowDataPacket {
+    op: string
+    estatus: string | null
+}
+
+const normalizarOp = (op: string) => op.trim().toUpperCase()
 
 export const dynamic = 'force-dynamic'
 
@@ -46,13 +54,27 @@ export async function POST(request: Request) {
         }
 
         const asignacion = rows[0]
+        const [asignacionesOperador] = await connection.query<OperatorAssignmentStatusRow[]>(
+            `SELECT op, estatus FROM admin_costura_asignaciones
+             WHERE id_operador = ?
+             FOR UPDATE`,
+            [asignacion.id_operador]
+        )
+        const opsActivas = new Set(
+            asignacionesOperador
+                .filter((item) => item.estatus === 'asignado' || item.estatus === null)
+                .map((item) => normalizarOp(item.op))
+        )
         const [sesiones] = await connection.query<OpenTimingSessionRow[]>(
             `SELECT id, op FROM operador_tiempos_costura
              WHERE id_operador = ? AND fecha_fin IS NULL
              FOR UPDATE`,
             [asignacion.id_operador]
         )
-        const otraSesion = sesiones.find((sesion) => sesion.op !== asignacion.op)
+        const opAsignacion = normalizarOp(asignacion.op)
+        const otraSesion = sesiones.find((sesion) =>
+            normalizarOp(sesion.op) !== opAsignacion && opsActivas.has(normalizarOp(sesion.op))
+        )
 
         if (otraSesion) {
             await connection.rollback()
@@ -62,7 +84,24 @@ export async function POST(request: Request) {
             )
         }
 
-        if (!sesiones.length) {
+        for (const sesion of sesiones) {
+            if (!opsActivas.has(normalizarOp(sesion.op))) {
+                await connection.query(
+                    `UPDATE operador_tiempos_costura
+                     SET fecha_fin = NOW(),
+                         tiempo_segundos = COALESCE(tiempo_segundos, 0)
+                             + TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())
+                     WHERE id = ? AND fecha_fin IS NULL`,
+                    [sesion.id]
+                )
+            }
+        }
+
+        const sesionAsignacionActiva = sesiones.some(
+            (sesion) => normalizarOp(sesion.op) === opAsignacion
+        )
+
+        if (!sesionAsignacionActiva) {
             await connection.query(
                 `INSERT INTO operador_tiempos_costura
                     (rq, op, producto, nombre, cantidad_asignada, id_operador, fecha_inicio)
