@@ -22,7 +22,8 @@ export async function GET(request: Request) {
                 pt.t_costura AS tiempo_base,
                 COALESCE(pt.t_costura, 0) * a.cantidad_asignada AS tiempo_sugerido_segundos,
                 COALESCE(t.segundos_acumulados, 0) AS segundos_acumulados,
-                CAST(UNIX_TIMESTAMP(t.inicio_sesion) * 1000 AS UNSIGNED) AS inicio_sesion_ms
+                CAST(UNIX_TIMESTAMP(t.inicio_sesion) * 1000 AS UNSIGNED) AS inicio_sesion_ms,
+                CAST(UNIX_TIMESTAMP(NOW(3)) * 1000 AS UNSIGNED) AS server_now_ms
             FROM admin_costura_asignaciones a
             LEFT JOIN manuales_produccion m ON a.producto LIKE CONCAT(SUBSTRING_INDEX(m.nombre_original, '.', 1), '%')
             LEFT JOIN productos_tiempos pt ON a.producto = pt.cod_proceso
@@ -36,14 +37,26 @@ export async function GET(request: Request) {
                             ELSE COALESCE(tiempo_segundos, TIMESTAMPDIFF(SECOND, fecha_inicio, fecha_fin))
                         END
                     ) AS segundos_acumulados,
-                    MAX(CASE WHEN fecha_fin IS NULL THEN fecha_inicio END) AS inicio_sesion
+                    MAX(CASE WHEN fecha_fin IS NULL THEN fecha_inicio END) AS inicio_sesion,
+                    GREATEST(
+                        0,
+                        COALESCE(
+                            TIMESTAMPDIFF(
+                                MICROSECOND,
+                                MAX(CASE WHEN fecha_fin IS NULL THEN fecha_inicio END),
+                                NOW(3)
+                            ) / 1000000,
+                            0
+                        )
+                    ) AS segundos_sesion_actual
                 FROM operador_tiempos_costura
+                WHERE id_operador = ?
                 GROUP BY id_operador, op
             ) t ON t.id_operador = a.id_operador AND t.op = a.op
             WHERE a.id_operador = ? 
               AND (a.estatus IN ('asignado', 'pausado') OR a.estatus IS NULL)
             ORDER BY CASE WHEN a.estatus = 'pausado' THEN 1 ELSE 0 END, a.id DESC
-        `, [id_operador])
+        `, [id_operador, id_operador])
 
         return NextResponse.json({ 
             success: true, 

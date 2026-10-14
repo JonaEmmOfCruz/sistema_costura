@@ -12,7 +12,7 @@ interface LoginFormProps {
     inputIconName?: string;
     helpLinkText?: string;
     helpLinkHref?: string;
-    onSubmit: (employeeId: string) => void;
+    onSubmit: (employeeId: string) => void | Promise<void>;
 }
 
 export default function LoginForm({
@@ -27,10 +27,17 @@ export default function LoginForm({
     onSubmit,
 }: LoginFormProps) {
     const [employeeId, setEmployeeId] = useState("")
+    const [submitting, setSubmitting] = useState(false)
 
-    const handleSubmit = (e: FormEvent) => {
+    const handleSubmit = async (e: FormEvent) => {
         e.preventDefault()
-        onSubmit(employeeId)
+        if (submitting) return
+        setSubmitting(true)
+        try {
+            await onSubmit(employeeId)
+        } finally {
+            setSubmitting(false)
+        }
     }
 
     return (
@@ -61,6 +68,7 @@ export default function LoginForm({
                                 id="employeedId"
                                 type="text"
                                 required
+                                disabled={submitting}
                                 value={employeeId}
                                 onChange={(e) => setEmployeeId(e.target.value)}
                                 placeholder={inputPlaceholder}
@@ -69,7 +77,10 @@ export default function LoginForm({
                         </div>
                     </div>
 
-                    <button type="submit" className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-neutral-900 hover:bg-neutral-800 text-white font-medium rounded-xl text-sm transition-all duration-200 shadow-sm hover:shadow active:scale-[0.99]"><span>{buttonText}</span></button>
+                    <button type="submit" disabled={submitting} className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-neutral-900 hover:bg-neutral-800 text-white font-medium rounded-xl text-sm transition-all duration-200 shadow-sm hover:shadow active:scale-[0.99] disabled:cursor-wait disabled:opacity-60">
+                        {submitting && <Icon icon="lucide:loader-2" className="animate-spin" />}
+                        <span>{submitting ? 'Ingresando...' : buttonText}</span>
+                    </button>
                 </form>
 
                 <div className="text-center">

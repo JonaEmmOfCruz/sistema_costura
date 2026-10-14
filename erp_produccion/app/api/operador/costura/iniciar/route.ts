@@ -22,6 +22,12 @@ interface OperatorAssignmentStatusRow extends RowDataPacket {
     estatus: string | null
 }
 
+interface ActiveTimingSessionRow extends RowDataPacket {
+    inicio_sesion_ms: number
+    segundos_sesion_actual: number
+    server_now_ms: number
+}
+
 const normalizarOp = (op: string) => op.trim().toUpperCase()
 
 export const dynamic = 'force-dynamic'
@@ -117,9 +123,32 @@ export async function POST(request: Request) {
             )
         }
 
+        const [sesionesActivas] = await connection.query<ActiveTimingSessionRow[]>(
+            `SELECT
+                CAST(UNIX_TIMESTAMP(fecha_inicio) * 1000 AS UNSIGNED) AS inicio_sesion_ms,
+                GREATEST(
+                    0,
+                    TIMESTAMPDIFF(MICROSECOND, fecha_inicio, NOW(3)) / 1000000
+                ) AS segundos_sesion_actual,
+                CAST(UNIX_TIMESTAMP(NOW(3)) * 1000 AS UNSIGNED) AS server_now_ms
+             FROM operador_tiempos_costura
+             WHERE id_operador = ? AND op = ? AND fecha_fin IS NULL
+             ORDER BY fecha_inicio DESC
+             LIMIT 1`,
+            [asignacion.id_operador, asignacion.op]
+        )
+
+        if (!sesionesActivas.length) {
+            throw new Error('No se encontró la sesión de costura activa después de iniciarla')
+        }
+
         await connection.commit()
         transactionStarted = false
-        return NextResponse.json({ success: true, message: 'Temporizador iniciado correctamente' })
+        return NextResponse.json({
+            success: true,
+            message: 'Temporizador iniciado correctamente',
+            ...sesionesActivas[0]
+        })
     } catch (error) {
         if (connection && transactionStarted) await connection.rollback()
         console.error('Error al iniciar costura:', error)

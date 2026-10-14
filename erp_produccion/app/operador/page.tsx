@@ -12,35 +12,46 @@ function formatTiempo(seg: number) {
 }
 
 function TiempoCostura({
-    inicioSesion,
-    segundosAcumulados,
+    segundosServidor,
     activo,
     segundosRef,
+    muestraMonotonic,
 }: {
-    inicioSesion: number
-    segundosAcumulados: number
+    segundosServidor: number
     activo: boolean
     segundosRef: { current: number }
+    muestraMonotonic: number
 }) {
-    const [segundos, setSegundos] = useState(segundosAcumulados)
+    const [segundos, setSegundos] = useState(Math.floor(segundosServidor))
+    const baseSegundosRef = useRef(segundosServidor)
+    const baseMonotonicRef = useRef(0)
 
     useEffect(() => {
         const actualizar = () => {
-            const valor = segundosAcumulados + (
-                activo && inicioSesion
-                    ? Math.max(0, Math.floor((Date.now() - inicioSesion) / 1000))
-                    : 0
-            )
+            const transcurrido = activo
+                ? Math.max(0, (performance.now() - baseMonotonicRef.current) / 1000)
+                : 0
+            const valor = Math.floor(baseSegundosRef.current + transcurrido)
             segundosRef.current = valor
             setSegundos(valor)
         }
 
+        baseSegundosRef.current = segundosServidor
+        baseMonotonicRef.current = muestraMonotonic || performance.now()
         actualizar()
         if (!activo) return
 
         const intervalo = window.setInterval(actualizar, 1000)
-        return () => window.clearInterval(intervalo)
-    }, [activo, inicioSesion, segundosAcumulados, segundosRef])
+        document.addEventListener('visibilitychange', actualizar)
+        window.addEventListener('focus', actualizar)
+        window.addEventListener('pageshow', actualizar)
+        return () => {
+            window.clearInterval(intervalo)
+            document.removeEventListener('visibilitychange', actualizar)
+            window.removeEventListener('focus', actualizar)
+            window.removeEventListener('pageshow', actualizar)
+        }
+    }, [activo, segundosServidor, segundosRef, muestraMonotonic])
 
     return <p className="mt-0.5 font-mono text-3xl font-bold leading-none tabular-nums sm:text-4xl">{formatTiempo(segundos)}</p>
 }
@@ -65,6 +76,7 @@ export default function OperadorPage() {
     const [alertaCambioPrioritario, setAlertaCambioPrioritario] = useState(false)
     const segundosRef = useRef(0)
     const [costuraActiva, setCosturaActiva] = useState(false)
+    const [iniciandoCostura, setIniciandoCostura] = useState(false)
     const [loadingTerminar, setLoadingTerminar] = useState(false)
     const asignacionActivaId = useRef<number | null>(null)
     const asignacionAnteriorRef = useRef<{ id: number; esPrioritaria: boolean } | null>(null)
@@ -143,14 +155,25 @@ export default function OperadorPage() {
 
     const cargarAsignacionPendiente = async (idOperador: number) => {
         const esUltimaSolicitud = isLatestRequest('asignacion')
+        const solicitudIniciada = performance.now()
         try {
             const res = await fetch(`/api/operador/asignaciones?id_operador=${idOperador}`, { cache: 'no-store' })
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const data = await res.json()
+            const respuestaRecibida = performance.now()
 
             if (!esUltimaSolicitud()) return
             if (data.success && Array.isArray(data.asignaciones)) {
-                const activa = data.asignaciones.find((item: any) => item.estatus === 'asignado' || item.estatus == null) || null
+                const activaOriginal = data.asignaciones.find((item: any) => item.estatus === 'asignado' || item.estatus == null) || null
+                const activa = activaOriginal
+                    ? {
+                        ...activaOriginal,
+                        server_time_at_receipt_ms:
+                            (Number(activaOriginal.server_now_ms) || 0)
+                            + (respuestaRecibida - solicitudIniciada) / 2,
+                        timer_sample_monotonic_ms: respuestaRecibida,
+                    }
+                    : null
                 const bloqueadas = data.asignaciones.filter((item: any) => item.estatus === 'pausado')
                 setAsignacionesBloqueadas(bloqueadas)
 
@@ -170,11 +193,8 @@ export default function OperadorPage() {
 
                     const inicioSesion = Number(activa.inicio_sesion_ms) || 0
                     const segundosAcumulados = Number(activa.segundos_acumulados) || 0
-                    const segundosEnSesion = inicioSesion
-                        ? Math.max(0, Math.floor((Date.now() - inicioSesion) / 1000))
-                        : 0
-
-                    segundosRef.current = segundosAcumulados + segundosEnSesion
+                    const segundosSesion = Number(activa.segundos_sesion_actual) || 0
+                    segundosRef.current = Math.floor(segundosAcumulados + segundosSesion)
                     setCosturaActiva(inicioSesion > 0)
                     setAlertaCambioPrioritario(cambioAOrdenPrioritaria)
                     setMostrarAlerta(cambioAOrdenPrioritaria || (esNuevaAsignacion && inicioSesion === 0))
@@ -203,7 +223,9 @@ export default function OperadorPage() {
     }
 
     const iniciarCostura = async () => {
-        if (!asignacion) return
+        if (!asignacion || iniciandoCostura) return
+        setIniciandoCostura(true)
+        const solicitudIniciada = performance.now()
         try {
             const res = await fetch('/api/operador/costura/iniciar', {
                 method: 'POST',
@@ -211,13 +233,33 @@ export default function OperadorPage() {
                 body: JSON.stringify({ asignacion_id: asignacion.id })
             })
             const data = await res.json()
-            if (data.success) {
-                if (user?.id) await cargarAsignacionPendiente(user.id)
+            const respuestaRecibida = performance.now()
+            if (res.ok && data.success) {
+                const asignacionIniciada = {
+                    ...asignacion,
+                    inicio_sesion_ms: data.inicio_sesion_ms,
+                    segundos_sesion_actual: data.segundos_sesion_actual,
+                    server_time_at_receipt_ms:
+                        (Number(data.server_now_ms) || 0)
+                        + (respuestaRecibida - solicitudIniciada) / 2,
+                    timer_sample_monotonic_ms: respuestaRecibida,
+                }
+                setAsignacion(asignacionIniciada)
+                setCosturaActiva(true)
+                segundosRef.current = Math.floor(
+                    (Number(asignacionIniciada.segundos_acumulados) || 0)
+                    + (Number(data.segundos_sesion_actual) || 0)
+                    + (respuestaRecibida - solicitudIniciada) / 2000
+                )
+                if (user?.id) void cargarAsignacionPendiente(user.id)
             } else {
                 alert(data.message || 'No se pudo iniciar el temporizador.')
             }
         } catch (error) {
             console.error("Error al iniciar:", error)
+            alert('No se pudo conectar con el servidor para iniciar el temporizador.')
+        } finally {
+            setIniciandoCostura(false)
         }
     }
 
@@ -370,18 +412,35 @@ export default function OperadorPage() {
                                         {costuraActiva ? 'Tiempo activo' : 'Tiempo acumulado'}
                                     </p>
                                     <TiempoCostura
-                                        inicioSesion={Number(asignacion.inicio_sesion_ms) || 0}
-                                        segundosAcumulados={Number(asignacion.segundos_acumulados) || 0}
+                                        segundosServidor={
+                                            (Number(asignacion.segundos_acumulados) || 0)
+                                            + (costuraActiva && Number(asignacion.inicio_sesion_ms) > 0
+                                                ? Math.max(
+                                                    0,
+                                                    (
+                                                        Number(asignacion.server_time_at_receipt_ms)
+                                                        - Number(asignacion.inicio_sesion_ms)
+                                                    ) / 1000
+                                                )
+                                                : (Number(asignacion.segundos_sesion_actual) || 0))
+                                        }
                                         activo={costuraActiva}
                                         segundosRef={segundosRef}
+                                        muestraMonotonic={
+                                            Number(asignacion.timer_sample_monotonic_ms) || 0
+                                        }
                                     />
                                 </div>
                                 {!costuraActiva ? (
                                     <button
                                         onClick={iniciarCostura}
-                                        className="col-span-2 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 sm:col-span-1"
+                                        disabled={iniciandoCostura}
+                                        className="col-span-2 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60 sm:col-span-1"
                                     >
-                                        <Icon icon="lucide:play" /> Iniciar
+                                        {iniciandoCostura
+                                            ? <Icon icon="lucide:loader-2" className="animate-spin" />
+                                            : <Icon icon="lucide:play" />}
+                                        {iniciandoCostura ? 'Iniciando...' : 'Iniciar'}
                                     </button>
                                 ) : (
                                     <button
