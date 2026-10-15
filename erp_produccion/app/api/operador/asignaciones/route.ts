@@ -29,11 +29,13 @@ export async function GET(request: Request) {
             LEFT JOIN productos_tiempos pt ON a.producto = pt.cod_proceso
             LEFT JOIN (
                 SELECT
+                    id_asignacion,
                     id_operador,
                     op,
+                    MAX(CASE WHEN fecha_fin IS NULL THEN cantidad_asignada END) AS cantidad_sesion_abierta,
                     SUM(
                         CASE
-                            WHEN fecha_fin IS NULL THEN 0
+                            WHEN id_asignacion IS NULL OR fecha_fin IS NULL THEN 0
                             ELSE COALESCE(tiempo_segundos, TIMESTAMPDIFF(SECOND, fecha_inicio, fecha_fin))
                         END
                     ) AS segundos_acumulados,
@@ -51,8 +53,15 @@ export async function GET(request: Request) {
                     ) AS segundos_sesion_actual
                 FROM operador_tiempos_costura
                 WHERE id_operador = ?
-                GROUP BY id_operador, op
-            ) t ON t.id_operador = a.id_operador AND t.op = a.op
+                GROUP BY id_asignacion, id_operador, op
+            ) t ON t.id_asignacion = a.id
+                OR (
+                    t.id_asignacion IS NULL
+                    AND t.inicio_sesion IS NOT NULL
+                    AND t.id_operador = a.id_operador
+                    AND t.op = a.op
+                    AND t.cantidad_sesion_abierta = a.cantidad_asignada
+                )
             WHERE a.id_operador = ? 
               AND (a.estatus IN ('asignado', 'pausado') OR a.estatus IS NULL)
             ORDER BY CASE WHEN a.estatus = 'pausado' THEN 1 ELSE 0 END, a.id DESC

@@ -3,6 +3,7 @@ import { pool } from '@/lib/db'
 import { RowDataPacket } from 'mysql2'
 
 interface OperatorAssignmentRow extends RowDataPacket {
+    id: number
     id_operador: number
     op: string
     rq: string
@@ -15,9 +16,12 @@ interface OperatorAssignmentRow extends RowDataPacket {
 interface OpenTimingSessionRow extends RowDataPacket {
     id: number
     op: string
+    cantidad_asignada: number
+    id_asignacion: number | string | null
 }
 
 interface OperatorAssignmentStatusRow extends RowDataPacket {
+    id: number
     op: string
     estatus: string | null
 }
@@ -61,25 +65,33 @@ export async function POST(request: Request) {
 
         const asignacion = rows[0]
         const [asignacionesOperador] = await connection.query<OperatorAssignmentStatusRow[]>(
-            `SELECT op, estatus FROM admin_costura_asignaciones
+            `SELECT id, op, estatus FROM admin_costura_asignaciones
              WHERE id_operador = ?
              FOR UPDATE`,
             [asignacion.id_operador]
         )
+        const asignacionesActivas = asignacionesOperador.filter(
+            (item) => item.estatus === 'asignado' || item.estatus === null
+        )
+        const idsAsignacionesActivas = new Set(
+            asignacionesActivas.map((item) => item.id)
+        )
         const opsActivas = new Set(
-            asignacionesOperador
-                .filter((item) => item.estatus === 'asignado' || item.estatus === null)
+            asignacionesActivas
                 .map((item) => normalizarOp(item.op))
         )
         const [sesiones] = await connection.query<OpenTimingSessionRow[]>(
-            `SELECT id, op FROM operador_tiempos_costura
+            `SELECT id, op, cantidad_asignada, id_asignacion FROM operador_tiempos_costura
              WHERE id_operador = ? AND fecha_fin IS NULL
              FOR UPDATE`,
             [asignacion.id_operador]
         )
         const opAsignacion = normalizarOp(asignacion.op)
         const otraSesion = sesiones.find((sesion) =>
-            normalizarOp(sesion.op) !== opAsignacion && opsActivas.has(normalizarOp(sesion.op))
+            sesion.id_asignacion !== null
+                ? Number(sesion.id_asignacion) !== asignacion.id
+                    && idsAsignacionesActivas.has(Number(sesion.id_asignacion))
+                : normalizarOp(sesion.op) !== opAsignacion && opsActivas.has(normalizarOp(sesion.op))
         )
 
         if (otraSesion) {
@@ -91,7 +103,14 @@ export async function POST(request: Request) {
         }
 
         for (const sesion of sesiones) {
-            if (!opsActivas.has(normalizarOp(sesion.op))) {
+            const sesionPerteneceAAsignacion =
+                (sesion.id_asignacion !== null && Number(sesion.id_asignacion) === asignacion.id) ||
+                (
+                    sesion.id_asignacion === null &&
+                    normalizarOp(sesion.op) === opAsignacion &&
+                    Number(sesion.cantidad_asignada) === Number(asignacion.cantidad_asignada)
+                )
+            if (!sesionPerteneceAAsignacion) {
                 await connection.query(
                     `UPDATE operador_tiempos_costura
                      SET fecha_fin = NOW(),
@@ -104,15 +123,22 @@ export async function POST(request: Request) {
         }
 
         const sesionAsignacionActiva = sesiones.some(
-            (sesion) => normalizarOp(sesion.op) === opAsignacion
+            (sesion) =>
+                (sesion.id_asignacion !== null && Number(sesion.id_asignacion) === asignacion.id) ||
+                (
+                    sesion.id_asignacion === null &&
+                    normalizarOp(sesion.op) === opAsignacion &&
+                    Number(sesion.cantidad_asignada) === Number(asignacion.cantidad_asignada)
+                )
         )
 
         if (!sesionAsignacionActiva) {
             await connection.query(
                 `INSERT INTO operador_tiempos_costura
-                    (rq, op, producto, nombre, cantidad_asignada, id_operador, fecha_inicio)
-                 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+                    (id_asignacion, rq, op, producto, nombre, cantidad_asignada, id_operador, fecha_inicio)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
                 [
+                    asignacion.id,
                     asignacion.rq,
                     asignacion.op,
                     asignacion.producto,
@@ -120,6 +146,14 @@ export async function POST(request: Request) {
                     asignacion.cantidad_asignada,
                     asignacion.id_operador
                 ]
+            )
+        } else {
+            await connection.query(
+                `UPDATE operador_tiempos_costura
+                 SET id_asignacion = ?
+                 WHERE id_operador = ? AND op = ? AND cantidad_asignada = ?
+                   AND id_asignacion IS NULL AND fecha_fin IS NULL`,
+                [asignacion.id, asignacion.id_operador, asignacion.op, asignacion.cantidad_asignada]
             )
         }
 
@@ -132,10 +166,10 @@ export async function POST(request: Request) {
                 ) AS segundos_sesion_actual,
                 CAST(UNIX_TIMESTAMP(NOW(3)) * 1000 AS UNSIGNED) AS server_now_ms
              FROM operador_tiempos_costura
-             WHERE id_operador = ? AND op = ? AND fecha_fin IS NULL
+             WHERE id_operador = ? AND id_asignacion = ? AND fecha_fin IS NULL
              ORDER BY fecha_inicio DESC
              LIMIT 1`,
-            [asignacion.id_operador, asignacion.op]
+            [asignacion.id_operador, asignacion.id]
         )
 
         if (!sesionesActivas.length) {

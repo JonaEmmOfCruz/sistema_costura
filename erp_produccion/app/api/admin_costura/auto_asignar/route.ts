@@ -87,8 +87,12 @@ export async function POST() {
                         SET fecha_fin = NOW(),
                             tiempo_segundos = COALESCE(tiempo_segundos, 0)
                                 + TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())
-                        WHERE id_operador = ? AND op = ? AND fecha_fin IS NULL
-                    `, [pausada.id_operador, pausada.op])
+                        WHERE fecha_fin IS NULL
+                          AND (
+                              id_asignacion = ?
+                              OR (id_asignacion IS NULL AND id_operador = ? AND op = ?)
+                          )
+                    `, [pausada.id, pausada.id_operador, pausada.op])
                     
                     // Si el operador ya está ocupado, no le reanudamos nada todavía
                     if (op.tieneAsignacionActiva) continue;
@@ -173,8 +177,12 @@ export async function POST() {
                                     SET fecha_fin = NOW(),
                                         tiempo_segundos = COALESCE(tiempo_segundos, 0)
                                             + TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())
-                                    WHERE id_operador = ? AND op = ? AND fecha_fin IS NULL
-                                `, [asig.id_operador, asig.op])
+                                    WHERE fecha_fin IS NULL
+                                      AND (
+                                          id_asignacion = ?
+                                          OR (id_asignacion IS NULL AND id_operador = ? AND op = ?)
+                                      )
+                                `, [asig.id, asig.id_operador, asig.op])
                                 
                                 const tBase = Number(asig.tiempo_base) || 0
                                 const asigCosto = tBase > MAX_SEGUNDOS ? MAX_SEGUNDOS : tBase

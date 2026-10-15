@@ -60,8 +60,12 @@ export async function POST(req: Request) {
                         SET fecha_fin = NOW(),
                             tiempo_segundos = COALESCE(tiempo_segundos, 0)
                                 + TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())
-                         WHERE id_operador = ? AND op = ? AND fecha_fin IS NULL`,
-                        [asignacion.id_operador, asignacion.op]
+                         WHERE fecha_fin IS NULL
+                           AND (
+                               id_asignacion = ?
+                               OR (id_asignacion IS NULL AND id_operador = ? AND op = ?)
+                           )`,
+                        [id_asignacion, asignacion.id_operador, asignacion.op]
                     )
 
                     await connection.query(

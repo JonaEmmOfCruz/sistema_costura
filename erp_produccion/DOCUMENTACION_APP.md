@@ -273,6 +273,7 @@ Los manuales se escriben en `public/uploads/` y se referencia su ruta en la base
 8. **Documentación del producto:** reemplazar la guía genérica del README y los metadatos de plantilla que aún aparecen en el proyecto por información institucional revisada.
 9. **Reportes:** confirmar con los responsables si el componente de reportes dinámicos debe exponerse como pantalla; actualmente no se identificó un acceso desde las páginas visibles.
 10. **Control de operación:** acordar quién valida altas de usuarios, prioridades, tiempos de catálogo, correcciones y restauraciones desde la papelera.
+11. **Temporizadores de costura:** aplicar [`20261014_add_assignment_id_to_operator_timings.sql`](./database/migrations/20261014_add_assignment_id_to_operator_timings.sql) antes de desplegar esta versión. El tiempo se asocia a cada asignación: una nueva asignación de la misma OP empieza en cero y pausar/reanudar la misma asignación conserva su tiempo.
 
 ## 12. Glosario
 

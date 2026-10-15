@@ -27,9 +27,15 @@ export async function POST(request: Request) {
         // 2. Actualizamos el registro en operador_tiempos_costura colocando la fecha_fin actual
         await pool.query(
             `UPDATE operador_tiempos_costura 
-             SET fecha_fin = NOW() 
-             WHERE id_operador = ? AND op = ? AND fecha_fin IS NULL`,
-            [asignacion.id_operador, asignacion.op]
+             SET fecha_fin = NOW(),
+                 tiempo_segundos = COALESCE(tiempo_segundos, 0)
+                     + TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())
+             WHERE fecha_fin IS NULL
+               AND (
+                   id_asignacion = ?
+                   OR (id_asignacion IS NULL AND id_operador = ? AND op = ?)
+               )`,
+            [asignacion_id, asignacion.id_operador, asignacion.op]
         )
 
         // 3. Eliminamos el registro de admin_costura_asignaciones para que ya no aparezca como asignación activa
