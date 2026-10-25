@@ -1,0 +1,331 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+import MermaidDiagram from '../../.storybook/MermaidDiagram'
+
+<Meta title="Documentación/Guía de usuario" />
+
+# Guía de usuario
+
+## Para qué sirve esta guía
+
+Explica, con pasos y ejemplos, cómo consultar órdenes, medir el tiempo real de costura, mantener las métricas de producto y resolver las situaciones habituales. Está dirigida a operadores y personal de administración.
+
+Los textos entre comillas representan datos de ejemplo. Usa siempre los códigos y cantidades que aparecen en tu orden real.
+
+## Mapa rápido de páginas
+
+Usa este mapa para llegar a la pantalla adecuada. El nombre de la página corresponde al menú y la ruta sirve como referencia si ya tienes acceso directo.
+
+| Área | Página | Para qué se usa |
+| --- | --- | --- |
+| Administración | `/admin` | Consultar el panel de producción y sus métricas. |
+| Administración | `/admin/usuarios` | Registrar, actualizar o retirar cuentas. |
+| Administración | `/admin/subir_ordenes` | Importar órdenes y consultar sus historiales. |
+| Administración | `/admin/subir_tiempos` | Atender peticiones, editar estándares e importar productos. |
+| Administración | `/admin/subir_manuales` | Subir y consultar manuales de producto. |
+| Administración | `/admin/exportar` | Consultar o descargar información por rango de fechas. |
+| Costura | `/admin_costura` | Abrir el área de trabajo de costura. |
+| Costura | `/admin_costura/ordenes` | Administrar cola de corte, pausas y órdenes retiradas. |
+| Costura | `/admin_costura/operadores` | Revisar disponibilidad y carga de operadores. |
+| Costura | `/admin_costura/asignar_orden` | Consultar órdenes cortadas, reparto y tiempos estimados. |
+| Costura | `/admin_costura/papelera` | Revisar y restaurar órdenes enviadas a papelera. |
+| Operador | `/operador` | Ejecutar una asignación y registrar el tiempo real. |
+
+### Administración: recorrido del usuario
+
+<MermaidDiagram
+  title="Tareas habituales del área de administración"
+  chart={`flowchart TD
+    dashboard["/admin: revisar métricas"] --> importOrders["/admin/subir_ordenes: cargar órdenes"]
+    importOrders --> manageOrders["/admin_costura/ordenes: preparar y cortar"]
+    manageOrders --> distribution["/admin_costura/operadores: disponibilidad"]
+    distribution --> assign["/admin_costura/asignar_orden: revisar reparto y estimado"]
+    assign -->|"falta tiempo"| metrics["/admin/subir_tiempos: atender petición"]
+    metrics --> assign
+    dashboard --> users["/admin/usuarios: mantener cuentas"]
+    dashboard --> manuals["/admin/subir_manuales: mantener manuales"]
+    dashboard --> export["/admin/exportar: descargar información"]
+  `}
+/>
+
+#### `/admin` — Panel general
+
+1. Revisa el rango de fechas seleccionado y los indicadores de producción.
+2. Si los datos no corresponden al periodo esperado, ajusta el filtro de fechas y vuelve a consultar.
+3. Usa las páginas específicas para hacer cambios; el panel sirve principalmente para revisar resultados.
+
+#### `/admin/usuarios` — Usuarios
+
+1. Busca el usuario por número de empleado o nombre en la tabla.
+2. Para registrar, completa número, nombre, área y tipo de usuario en el formulario y confirma el alta.
+3. Para editar, cambia los campos del usuario y guarda la modificación.
+4. Antes de eliminar, confirma que seleccionaste la cuenta correcta; la acción retira el acceso de esa cuenta.
+
+#### `/admin/subir_ordenes` — Carga e historial de órdenes
+
+1. Prepara el archivo delimitado con encabezados y los datos de las órdenes.
+2. Selecciona el archivo en la pantalla y ejecuta la carga.
+3. Revisa el mensaje de resultado y busca la OP en la tabla paginada.
+4. Abre el detalle para consultar asignaciones, cortes o tiempos disponibles.
+5. Si el registro no aparece en la primera página, usa búsqueda/paginación de la pantalla antes de volver a cargarlo.
+
+#### `/admin/subir_tiempos` — Peticiones y catálogo
+
+Usa el procedimiento detallado de [Administración de tiempos y productos](#administración-de-tiempos-y-productos). Esta página reúne tres tareas: responder solicitudes de tiempo, editar/agregar registros y cargar una hoja de cálculo. Los campos `t_*` siempre se capturan en segundos.
+
+#### `/admin/subir_manuales` — Manuales
+
+1. Comprueba que el PDF o imagen corresponda al producto que vas a documentar.
+2. Selecciona el archivo admitido por el formulario y confirma la carga.
+3. Comprueba el nombre y el código relacionado que muestra la lista.
+4. Abre el manual desde la tabla para verificar que el archivo se vea correctamente.
+
+#### `/admin/exportar` — Exportaciones
+
+1. Selecciona el rango de fechas completo que necesitas.
+2. Selecciona el conjunto de información disponible en el módulo.
+3. Ejecuta la consulta o descarga y revisa el archivo antes de compartirlo.
+4. Si el rango está incompleto, corrige las fechas y vuelve a solicitar la exportación.
+
+### Costura: recorrido operativo
+
+<MermaidDiagram
+  title="Recorrido de una orden en el área de costura"
+  chart={`flowchart LR
+    orders["Órdenes"] --> cut["/admin_costura/ordenes: corte"]
+    cut --> ready["Orden cortada"]
+    ready --> capacity["/admin_costura/operadores: disponibilidad"]
+    capacity --> assign["/admin_costura/asignar_orden: asignación y estimado"]
+    assign --> operator["/operador: ejecución"]
+    assign -->|"sin estándar"| catalog["/admin/subir_tiempos: asignar estándar"]
+    catalog --> assign
+    trash["/admin_costura/papelera: restaurar orden"] -.-> cut
+  `}
+/>
+
+#### `/admin_costura` — Portada
+
+Entra al área y selecciona la tarea que corresponda: controlar corte, disponibilidad, asignación o recuperación de órdenes. La portada actual es informativa; las acciones se hacen en las páginas enlazadas.
+
+#### `/admin_costura/ordenes` — Corte y cola
+
+1. Localiza la orden y confirma OP, producto y cantidad.
+2. Pulsa iniciar corte cuando el trabajo comience.
+3. Al terminar, finaliza el corte para que la orden quede disponible en el siguiente paso.
+4. Si existe un impedimento, pon la orden en espera y selecciona el motivo correcto.
+5. Cuando se resuelva, reanuda la orden. Envía a papelera solo órdenes que deban retirarse del flujo.
+
+#### `/admin_costura/operadores` — Disponibilidad
+
+1. Revisa qué operadores están disponibles y su carga pendiente.
+2. Habilita a la persona que puede recibir trabajo o deshabilítala si ya no está disponible.
+3. Comprueba nuevamente las asignaciones después del ciclo automático.
+4. La capacidad toma como referencia el turno de ocho horas; coordina los cambios de disponibilidad con el equipo.
+
+#### `/admin_costura/asignar_orden` — Reparto, prioridad y tiempos
+
+1. Busca la OP y revisa la cantidad total y la cantidad ya asignada.
+2. Confirma el tiempo estimado. El estándar se toma de la familia de siete caracteres y está guardado en segundos.
+3. Si ves **Sin métrica**, solicita el tiempo una sola vez y sigue el estado en la página `/admin/subir_tiempos`.
+4. Si aparece **En cola / Pausada**, revisa disponibilidad y capacidad en la página de operadores.
+5. Si la petición está atendida pero no ves el tiempo, actualiza la página para volver a cargar la métrica.
+
+#### `/admin_costura/papelera` — Recuperación
+
+1. Busca la orden por OP o producto.
+2. Verifica que sea la orden correcta y revisa el motivo/fecha de retiro.
+3. Pulsa restaurar para devolverla al flujo operativo.
+4. Regresa a la página de órdenes y confirma que vuelva a aparecer.
+
+### Operador: ejecutar el trabajo
+
+<MermaidDiagram
+  title="Uso de la página Operador"
+  chart={`flowchart TD
+    login["Iniciar sesión"] --> assignment["/operador: revisar asignación"]
+    assignment --> manual{"¿Hay manual disponible?"}
+    manual -->|"sí"| review["Abrir y verificar manual"]
+    manual -->|"no"| start["Iniciar cronómetro"]
+    review --> start
+    start --> work["Realizar la cantidad asignada"]
+    work --> finish["Finalizar asignación"]
+    finish --> saved["Sesión registrada en segundos"]
+  `}
+/>
+
+#### `/operador` — Asignación y cronómetro
+
+1. Inicia sesión con tu cuenta de operador.
+2. Confirma OP, producto y cantidad asignada antes de comenzar.
+3. Abre el manual disponible y comprueba que coincida con el producto.
+4. Pulsa **Iniciar** al comenzar a trabajar; confirma que el cronómetro avance.
+5. Al terminar las piezas asignadas, pulsa finalizar y espera la confirmación.
+6. Si una orden está pausada o no aparece una asignación, avisa al responsable de costura; no inicies un cronómetro para una orden distinta.
+
+El tiempo del cronómetro registra segundos reales de trabajo. El tiempo estándar del catálogo se usa para estimar y planear; no cambia lo que registra tu cronómetro.
+
+## Conceptos básicos
+
+| Término | Qué significa |
+| --- | --- |
+| **Código de proceso** | Código completo de la variante del producto, por ejemplo `155-20000-DGY`. |
+| **Familia de producto** | Los primeros siete caracteres del código. En `155-20000-DGY`, la familia usada para buscar la métrica es `155-200`. |
+| **Tiempo unitario** | Tiempo estándar para una pieza. `t_costura` se guarda en segundos por pieza. |
+| **Tiempo estimado de la orden** | Cantidad de piezas multiplicada por el tiempo unitario. La tabla lo presenta en minutos redondeados hacia arriba al minuto entero siguiente. |
+| **Tiempo real** | Segundos que el operador acumula con el cronómetro de una asignación. No es lo mismo que el estándar del catálogo. |
+
+### Conversión de segundos a minutos
+
+La conversión ocurre al mostrar el estimado; no conviertas el valor del catálogo antes de guardarlo.
+
+**Ejemplo: 9 piezas con un estándar de 2,100 segundos por pieza**
+
+1. Multiplica: `9 × 2,100 = 18,900 segundos`.
+2. Convierte el total: `18,900 ÷ 60 = 315 minutos`.
+3. Si ayuda para leerlo: `315 minutos = 5 horas y 15 minutos`.
+
+En la tabla se verá **315 min**. Como 315 es menor que 480 minutos (8 horas), no aparece la marca `+ 8 Horas` para ese cálculo. La marca se muestra cuando el estimado total es mayor que 480 minutos.
+
+**Otro ejemplo: 2 piezas de 600 segundos**
+
+`2 × 600 = 1,200 segundos`; `1,200 ÷ 60 = 20 minutos`. La tabla muestra **20 min**.
+
+## Operador de costura
+
+### Consultar una asignación
+
+1. Abre el módulo **Operador** e inicia sesión con tu cuenta.
+2. Revisa el producto, la OP, la cantidad asignada y el nombre de la orden que aparecen en pantalla.
+3. Si se muestra un manual disponible para el producto, ábrelo y confirma que corresponda al modelo antes de comenzar.
+4. Si no hay asignación activa, contacta al responsable de costura para que revise la distribución de órdenes.
+
+### Iniciar y terminar el cronómetro
+
+1. Con la orden correcta en pantalla, pulsa **Iniciar** una sola vez.
+2. Confirma que aparezca el cronómetro en movimiento.
+3. Trabaja la cantidad indicada para esa asignación.
+4. Cuando termines, pulsa el botón de finalización de la pantalla y espera la confirmación.
+
+El cronómetro registra segundos reales. Si la pantalla se actualiza, vuelve a conectarse o recargas el navegador, el sistema consulta la sesión guardada y recupera el tiempo acumulado. Si una acción no responde, espera la actualización antes de intentar iniciar de nuevo.
+
+**Ejemplo:** una sesión se inicia a las 10:00 y termina a las 10:12:30. El tiempo transcurrido de esa sesión es 750 segundos, es decir, 12 minutos y 30 segundos. El valor real puede ser distinto del tiempo estándar del producto.
+
+## Órdenes cortadas y asignación a operadores
+
+La pantalla **Administración de costura → Asignar orden** muestra el historial de órdenes que ya pasaron por corte. Al entrar, la página solicita al servidor ejecutar la autoasignación y luego carga las órdenes y las solicitudes pendientes de tiempo.
+
+### Leer las columnas principales
+
+- **Prioridad:** indica si el código o nombre de producto coincide con la lista de prefijos prioritarios configurada.
+- **Cantidad:** unidades de la orden.
+- **Asignadas:** unidades repartidas sobre el total. Por ejemplo, `64 / 64` significa que todas están asignadas; `20 / 64` significa que quedan 44 por repartir.
+- **Tiempo estimado:** total de costura calculado para la cantidad completa de la orden. Si no existe un estándar válido, aparece **Sin métrica**.
+- **Estatus:** `Asignado` significa que la cantidad quedó repartida; `En Cola / Pausada` significa que queda cantidad pendiente por capacidad o interrupción de prioridad.
+- **Buscar por OP:** escribe una OP para filtrar las filas que ya están cargadas en la tabla.
+
+La asignación considera la disponibilidad y la capacidad de los operadores, con una referencia de 480 minutos por turno. No cambies la cantidad de la orden para corregir un tiempo; el tiempo se corrige en el catálogo de productos.
+
+### Cuando aparece “Sin métrica”
+
+1. Comprueba el código que aparece en la fila.
+2. Pulsa **Solicitar tiempo** una sola vez.
+3. El sistema busca un `t_costura` válido entre los productos de la misma familia, identificada por los primeros siete caracteres del código.
+4. Si encuentra un valor positivo con una actividad de costura válida, lo asigna a la variante y actualiza el estimado. La solicitud aparecerá como **Atendida** en la gestión de tiempos.
+5. Si no encuentra un valor válido, registra una solicitud pendiente. En ese caso, el botón cambia a **Solicitud Pendiente** y el equipo administrador debe resolverla.
+
+**Ejemplo:** para el producto `155-20000-DGY`, la familia de búsqueda es `155-200`. Si una variante válida de esa familia tiene `t_costura = 2100`, el estándar aplicado es 2,100 segundos por pieza. Para 9 piezas, el resultado estimado será 315 minutos.
+
+**Revisión de actividad:** antes de confirmar un tiempo, verifica que **Costura** describa una operación real. La búsqueda compartida de órdenes ignora `N/A`, `NA` y `N/D`; un registro familiar con una actividad incorrecta puede explicar por qué la solicitud y el estimado de una pantalla no coinciden.
+
+Si el historial dice **Atendida** pero la fila sigue mostrando **Sin métrica**, pulsa **Actualizar** o recarga la pantalla. Si continúa igual, avisa al administrador con el código completo y la OP; no vuelvas a crear solicitudes repetidas.
+
+## Administración de tiempos y productos
+
+Abre **Administración → Gestión de tiempos y productos**. Esta pantalla reúne las solicitudes, la carga masiva y el catálogo editable.
+
+### Atender una solicitud pendiente
+
+1. Busca su tarjeta en **Peticiones de Tiempo Solicitadas**. Usa código, producto y OP para identificarla.
+2. Confirma que el estado sea **Pendiente**.
+3. Pulsa **Asignar Tiempo**. La pantalla busca una coincidencia por familia y muestra un formulario para revisar los datos.
+4. Revisa **Código**, **Producto (Descripción)**, **Costura** y **Tiempo (segundos por unidad)**.
+5. Escribe o corrige el valor de tiempo en segundos por pieza. Ejemplo: para 35 minutos por pieza, captura `2100`, porque `35 × 60 = 2100` segundos.
+6. Pulsa **Confirmar y Asignar Tiempo** y espera el mensaje de confirmación.
+7. Comprueba que la tarjeta cambie a **Atendida** y muestre los segundos asignados. La orden puede tardar unos instantes en refrescar su métrica.
+
+Si la solicitud no debe atenderse, pulsa **Rechazar Petición**. El estado quedará como rechazada; revisa código y OP antes de rechazar para no descartar una solicitud correcta.
+
+### Editar una fila del catálogo
+
+1. En **Catálogo editable**, escribe el código en **Buscar por código de proceso...**. La búsqueda considera los registros cargados actualmente.
+2. Si el registro no aparece, pulsa **Cargar siguientes 50 productos** y vuelve a buscar. La lista se carga por páginas de 50.
+3. Haz clic en la celda que quieres modificar. Los campos `t_*` son numéricos y están expresados en segundos.
+4. Escribe el nuevo valor. Por ejemplo, cambia `t_costura` de `600` a `720` para cambiar el estándar de 10 a 12 minutos por pieza.
+5. Presiona **Enter** o haz clic fuera de la celda. El cambio se guarda automáticamente al salir del campo.
+6. Espera el mensaje de guardado y el indicador de nube verde. Si aparece un error, el cambio no debe considerarse guardado.
+
+**Importante:** no captures `12` para representar 12 minutos en una columna de tiempo. Captura `720` segundos. `12` significaría 12 segundos.
+
+### Agregar un producto nuevo
+
+1. Usa la primera fila resaltada del catálogo.
+2. Completa como mínimo **Código de proceso** y **Descripción**.
+3. Completa las actividades que correspondan. Para costura, coloca la actividad en **Costura** y la métrica en **Tiempo costura (segundos)**.
+4. Pulsa **Agregar** y espera la confirmación.
+5. Busca el código en el catálogo para verificar que el registro aparezca.
+
+**Ejemplo de una fila nueva**
+
+| Campo | Valor de ejemplo |
+| --- | --- |
+| Código de proceso | `155-20000-DGY` |
+| Descripción | `MINUSH SILLA TECHNO POLIMERO` |
+| Costura | `Costura` |
+| Tiempo costura (segundos) | `2100` |
+
+### Importar productos desde archivo
+
+1. Prepara una hoja con una fila de encabezados y una fila por producto.
+2. Conserva los nombres de columna del catálogo, por ejemplo `cod_proceso`, `descripcion`, `costura`, `t_costura`, `tapizado`, `t_tapizado`, `armado`, `t_armado`, `montado`, `t_montado`, `empaque`, `t_empaque`, `corte`, `t_corte`.
+3. Introduce los tiempos en segundos. No conviertas a minutos antes de importar.
+4. Guarda el archivo en `.xlsx`, `.xls`, `.xltx` o `.csv`.
+5. Arrastra el archivo a **Carga Masiva por Excel** o selecciónalo desde tu equipo.
+6. Pulsa **Subir Excel** y espera el resultado.
+7. Busca algunos códigos importados en el catálogo y confirma que sus tiempos y descripciones sean correctos.
+
+La carga actualiza los registros que coinciden con su código único. Revisa que los encabezados estén escritos correctamente y conserva una copia original del archivo antes de corregir cargas grandes.
+
+## Tabla de referencia de estados
+
+| Estado mostrado | Qué indica | Siguiente paso |
+| --- | --- | --- |
+| **Sin métrica** | No se encontró tiempo unitario positivo y válido. | Solicita el tiempo o registra la métrica en el catálogo. |
+| **Solicitud Pendiente** | La familia no permitió una asignación automática y la solicitud espera revisión. | Administración revisa y atiende o rechaza la tarjeta. |
+| **Atendida** | La solicitud ya se procesó y tiene un tiempo registrado. | Confirma que la orden se refresque y muestre su estimado. |
+| **Rechazada** | Administración descartó la solicitud. | Si fue un error, solicita al administrador que registre una nueva métrica. |
+| **Asignado** | La cantidad de la orden quedó distribuida. | El operador puede comenzar cuando vea la asignación en su módulo. |
+| **En Cola / Pausada** | Queda cantidad sin distribuir por capacidad o prioridad. | Espera a que el ciclo de asignación vuelva a ejecutarse. |
+
+## Resolución de problemas
+
+### El botón de solicitar sigue apareciendo después de atender la petición
+
+1. Usa **Actualizar** en la pantalla de gestión de tiempos.
+2. Regresa a la orden y recarga la vista.
+3. Confirma que el producto tenga `t_costura` mayor que cero y que el campo **Costura** no esté vacío ni marcado como `N/A`, `NA` o `N/D`.
+4. Confirma que el código guardado pertenezca a la misma familia de siete caracteres.
+5. Si persiste, comparte con el administrador el código, OP, estado de la petición y tiempo registrado.
+
+### El catálogo dice “Guardado automático”, pero no aparece el cambio
+
+- Pulsa Enter o sal de la celda y espera el resultado.
+- Revisa el mensaje sobre la tabla y el icono de estado de la fila.
+- Busca el código exacto; puede haber otra variante con un código parecido.
+- Si aparece un mensaje de código duplicado, revisa si se trata de un registro existente antes de crear otra fila.
+
+### La orden aparece en cola
+
+La cola puede indicar que los operadores disponibles ya tienen ocupada su capacidad del turno o que se priorizó otra orden. No dupliques la orden. Espera la reasignación automática y confirma el total en **Asignadas**.
+
+### Qué información enviar al pedir ayuda
+
+Incluye el módulo y la pantalla, código completo del producto, OP o RQ, cantidad, estado visible, acción que intentaste y hora aproximada. No envíes contraseñas ni tokens.

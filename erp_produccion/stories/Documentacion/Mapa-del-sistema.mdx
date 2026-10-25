@@ -1,0 +1,325 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+import MermaidDiagram from '../../.storybook/MermaidDiagram'
+
+<Meta title="Documentación/Mapa del sistema" />
+
+# Mapa del sistema: páginas, API y base de datos
+
+## Cómo usar este documento
+
+Este catálogo complementa la [Guía de usuario](?path=/docs/documentaci%C3%B3n-gu%C3%ADa-de-usuario--docs) y la [Guía técnica](?path=/docs/documentaci%C3%B3n-gu%C3%ADa-t%C3%A9cnica--docs). Describe cada página operativa, las rutas HTTP que usa y el modelo de datos que se puede observar en las consultas de la aplicación.
+
+Los nombres de rutas y tablas corresponden al repositorio actual. Las relaciones de base de datos se describen como **relaciones usadas por las consultas**; no se afirma que existan claves foráneas físicas hasta contrastarlas con el DDL.
+
+## 1. Mapa de páginas
+
+### Arquitectura de la aplicación
+
+<MermaidDiagram
+  title="De la interfaz a la base de datos"
+  chart={`flowchart LR
+    browser["Navegador: admin, costura y operador"] --> pages["Páginas Next.js / React"]
+    pages --> api["Route Handlers: app/api"]
+    api --> mysql["MySQL: system_produccion"]
+    pages <-->|"refresco en vivo"| socket["Socket.IO en server.mjs"]
+    api -->|"notifica cambios"| socket
+  `}
+/>
+
+### Administración general
+
+| URL / archivo | Propósito | Datos y acciones principales |
+| --- | --- | --- |
+| `/admin` — `app/admin/page.tsx` | Panel general de administración. | Consulta sesión con `GET /api/me` y muestra `ProductionAnalyticsDashboard`, que carga analítica por rango de fechas. |
+| `/admin/exportar` — `app/admin/exportar/page.tsx` | Exportación de información. | Permite seleccionar información y rango de fechas; consulta resumen y genera descargas mediante `/api/admin/exportar`. La ruta valida la sesión y las fechas antes de exportar. |
+| `/admin/usuarios` — `app/admin/usuarios/page.tsx` | Gestión de cuentas. | Usa `UserRegistrationForm`; lista usuarios, permite editar número de empleado, nombre, área y tipo, y confirma antes de eliminar. |
+| `/admin/subir_ordenes` — `app/admin/subir_ordenes/page.tsx` | Importación de órdenes y consulta de su historial. | Sube un archivo de órdenes; presenta la lista de órdenes y un modal con pestañas de asignaciones, cortes y tiempos. Las pestañas consultan sus APIs por páginas. |
+| `/admin/subir_tiempos` — `app/admin/subir_tiempos/page.tsx` | Catálogo y estándares por proceso. | Historial de peticiones, revisión/aprobación, carga de productos por archivo y edición inline del catálogo. Las columnas `t_*` se expresan en segundos. |
+| `/admin/subir_manuales` — `app/admin/subir_manuales/page.tsx` | Catálogo de manuales de producción. | Sube PDF e imágenes; calcula un código de relación a partir del nombre, muestra los manuales y permite abrir el archivo. |
+
+#### Comportamiento importante de administración
+
+- **Dashboard:** el componente de analítica consulta `GET /api/admin/analisis`; también puede cargar reportes dinámicos con `GET /api/reportes/esquema` y `POST /api/reportes/dinamicos`.
+- **Exportación:** la selección de tablas se genera a partir de las tablas disponibles para exportación; no representa una lista fija de columnas en esta documentación.
+- **Carga de órdenes:** la pantalla acepta un archivo para `POST /api/ordenes/subir`. El parser de esa ruta lee contenido delimitado por `;` y encabezados, e inserta cada orden en `ordenes_produccion` y `admin_costura_ordenes`.
+- **Manuales:** actualmente los formatos aceptados por el selector son `.pdf`, `.png`, `.jpg` y `.jpeg`. La relación entre nombre de archivo y producto depende de la regla de código que aplica el módulo.
+- **Catálogo de tiempos:** la búsqueda de la UI filtra por código en las páginas ya cargadas; usa **Cargar siguientes 50 productos** para incorporar más filas antes de concluir que un código no existe.
+
+### Administración de costura
+
+| URL / archivo | Propósito | Datos y acciones principales |
+| --- | --- | --- |
+| `/admin_costura` — `app/admin_costura/page.tsx` | Portada del área de costura. | Recupera el usuario con `/api/me` y presenta el panel del área. La página actual es una portada informativa. |
+| `/admin_costura/ordenes` — `app/admin_costura/ordenes/page.tsx` | Preparación y control del corte. | Consulta órdenes pendientes y en espera; inicia/finaliza el cronómetro de corte, pone OP en espera con motivo, reanuda y envía órdenes a la papelera. |
+| `/admin_costura/operadores` — `app/admin_costura/operadores/page.tsx` | Disponibilidad y carga por operador. | Habilita o deshabilita operadores, muestra vencimiento de disponibilidad y asignaciones no terminadas. Al entrar, ejecuta el ciclo automático de asignación. |
+| `/admin_costura/asignar_orden` — `app/admin_costura/asignar_orden/page.tsx` | Historial de órdenes cortadas y estimado de costura. | Al entrar ejecuta `POST /api/admin_costura/auto_asignar`; luego muestra órdenes cortadas, prioridad, cantidades, tiempo estimado y solicitudes de métrica. No es la pantalla de cronometraje de corte. |
+| `/admin_costura/papelera` — `app/admin_costura/papelera/page.tsx` | Recuperación de órdenes retiradas. | Lista órdenes en papelera y las restaura a `admin_costura_ordenes`. |
+
+#### Ciclo de una orden de costura
+
+1. La orden de producción se importa y queda disponible en la cola de `admin_costura_ordenes`.
+2. El área de corte la consulta, inicia el corte y al finalizar registra el fin y estado cortado.
+3. La disponibilidad de operadores y el ciclo automático crean o reanudan filas en `admin_costura_asignaciones`.
+4. El operador ve la asignación y abre una sesión real de costura.
+5. El histórico de órdenes cortadas agrega el estándar unitario por familia y calcula el estimado de la cantidad completa.
+
+Los estados y las cantidades son distintos: `cantidad` es la cantidad original de la orden; `cantidad_asignada` es el subconjunto entregado a un operador; `total_asignado` suma asignaciones para mostrar el avance.
+
+### Operador
+
+| URL / archivo | Propósito | Datos y acciones principales |
+| --- | --- | --- |
+| `/operador` — `app/operador/page.tsx` | Ejecución de la asignación. | Consulta sesión y asignaciones propias; muestra OP, producto, cantidad, manual asociado, cronómetro y órdenes pausadas. Inicia costura y termina la asignación. |
+
+El cronómetro del operador es tiempo real y se conserva en `operador_tiempos_costura`. El estándar `t_costura` se presenta por separado: sirve para estimación y capacidad, no sustituye la medición de la sesión.
+
+## 2. Catálogo de rutas HTTP
+
+Cada archivo `app/api/**/route.ts` define una ruta. Las tablas siguientes registran todos los Route Handlers presentes en este inventario del repositorio. Los parámetros opcionales se muestran solo cuando forman parte del contrato que consume una pantalla.
+
+### Sesión, usuarios y administración general
+
+| Método y URL | Uso |
+| --- | --- |
+| `POST /api/login` | Autentica con número de empleado y crea la sesión/token. |
+| `GET /api/me` | Devuelve el usuario asociado a la sesión actual. |
+| `GET /api/usuarios?page=&pageSize=` | Lista usuarios de forma paginada. |
+| `POST /api/usuarios/registrar` | Registra una cuenta. |
+| `PUT /api/usuarios` | Modifica datos del usuario. |
+| `DELETE /api/usuarios?id=` | Elimina el usuario indicado. |
+| `GET /api/usuarios/stats` | Devuelve conteos agregados de usuarios, órdenes y producción. |
+| `GET /api/admin/analisis?desde=&hasta=` | Métricas del dashboard; acepta un rango de fechas completo. |
+| `GET /api/admin/exportar?...` | Consulta resumen o exporta tablas según parámetros del módulo. Valida sesión y rango de fechas. |
+| `GET /api/reportes/esquema` | Descubre esquema/columnas disponibles para el generador de reportes. |
+| `POST /api/reportes/dinamicos` | Ejecuta un reporte dinámico a partir de las dimensiones seleccionadas. |
+
+### Órdenes de producción y corte
+
+| Método y URL | Uso |
+| --- | --- |
+| `GET /api/ordenes?page=&pageSize=` | Consulta `ordenes_produccion` paginada. |
+| `POST /api/ordenes/subir` | Importa órdenes desde un archivo delimitado; escribe en las tablas general y de costura. |
+| `GET /api/admin_costura/ordenes?dataset=ordenes&page=&pageSize=` | Lista órdenes de costura y datos de corte/espera relacionados. |
+| `GET /api/admin_costura/ordenes?dataset=espera&page=&pageSize=` | Lista órdenes actualmente en espera. |
+| `POST /api/admin_costura/ordenes/espera` | Cambia una OP a espera o la reanuda. Entrada: `orden_id`, `accion` y, al poner en espera, `motivo`. |
+| `POST /api/admin_costura/corte/iniciar` | Inicia el corte de una orden. Entrada: `orden_id`. |
+| `POST /api/admin_costura/corte/finalizar` | Finaliza corte y actualiza estado/fechas. Entrada: `orden_id` y segundos transcurridos. |
+| `GET /api/admin_costura/corte` | Consulta registros de corte. |
+| `GET /api/admin_costura/cortadas?page=&pageSize=` | Consulta órdenes cortadas, asignadas y métrica de costura. |
+| `POST /api/admin_costura/auto_asignar` | Reanuda o distribuye trabajo automáticamente usando disponibilidad, capacidad y prioridad. |
+| `POST /api/admin_costura/asignar` | Distribuye cantidad pendiente de una orden. Entrada: `orden_id`. |
+| `GET /api/admin_costura/asignadas?page=&pageSize=` | Consulta asignaciones activas para la vista de operadores. |
+| `POST /api/admin_costura/papelera` | Mueve una o varias órdenes a papelera. La vista puede enviar `ids`. |
+| `GET /api/admin_costura/papelera?page=&pageSize=` | Consulta la papelera. |
+| `POST /api/admin_costura/papelera/restaurar` | Restaura una orden. Entrada: `id`. |
+| `POST /api/admin_costura/papelera/corte/iniciar` | Inicia corte para un registro de la papelera, según el flujo de esa ruta. |
+| `POST /api/admin_costura/papelera/corte/finalizar` | Cierra el flujo de corte iniciado desde papelera. |
+
+### Operadores, asignaciones y cronómetros
+
+| Método y URL | Uso |
+| --- | --- |
+| `GET /api/operadores?page=&pageSize=` | Lista operadores y su disponibilidad. |
+| `POST /api/operadores/habilitar` | Habilita disponibilidad. Entrada: `id`. |
+| `POST /api/operadores/deshabilitar` | Deshabilita disponibilidad. Entrada: `id`. |
+| `GET /api/operador/asignaciones?id_operador=` | Devuelve asignaciones activas/pausadas, el estándar de familia en segundos y sesiones reales. |
+| `POST /api/operador/costura/iniciar` | Abre/reanuda una sesión. Entrada: `asignacion_id`. Impide dos sesiones simultáneas incompatibles del mismo operador. |
+| `POST /api/operador/costura/finalizar` | Ruta de finalización alternativa del operador: cierra sesión y elimina la asignación activa. |
+| `POST /api/costura-tiempos/terminar` | Finaliza la sesión asociada a `id_asignacion`, almacena segundos y marca la asignación terminada. También admite cierre de corte con `tipo: "corte"`. |
+| `GET /api/costura-tiempos?page=&pageSize=` | Historial paginado de tiempos registrados. |
+| `GET /api/costura-asignaciones?page=&pageSize=` | Historial paginado de asignaciones con operador y orden. |
+| `GET /api/costura-cortes?page=&pageSize=` | Historial paginado de cortes. |
+
+### Productos, métricas y manuales
+
+| Método y URL | Uso |
+| --- | --- |
+| `GET /api/productos/tiempos?page=&pageSize=` | Lista catálogo `productos_tiempos`; `t_*` permanece en segundos. |
+| `POST /api/productos/crud` | Alta/actualización de producto por código. Entrada: `accion: "agregar"` y `producto`. |
+| `PUT /api/productos/crud` | Actualiza campos de un producto por `id`; acción `modificar_producto`. |
+| `DELETE /api/productos/crud` | Elimina un registro del catálogo según el cuerpo de la petición. |
+| `POST /api/productos/subir-tiempos` | Importa productos y métricas desde hoja de cálculo/CSV. Entrada `multipart/form-data` con campo `file`. |
+| `GET /api/productos/buscar_modelo?codigo=&nombre=&modelo=` | Busca coincidencia para completar una petición de tiempo. |
+| `GET /api/productos/peticiones?page=&pageSize=` | Devuelve peticiones pendientes. |
+| `GET /api/productos/peticiones?history=1&page=&pageSize=` | Devuelve el historial de estados y el tiempo asociado. |
+| `POST /api/productos/peticiones` | Registra una solicitud o intenta asignar un tiempo de familia automáticamente. |
+| `POST /api/productos/peticiones/aprobar` | Guarda el tiempo y marca la solicitud atendida. |
+| `POST /api/productos/peticiones/rechazar` | Marca la solicitud como rechazada. |
+| `GET /api/manuales?codigo=&page=&pageSize=` | Busca manuales por código y pagina los resultados. |
+| `POST /api/manuales/subir` | Sube archivo de manual, lo guarda en almacenamiento de la aplicación y registra metadatos. |
+
+### Archivos que no son endpoints
+
+`app/api/admin_costura/asignar/asignar.ts` y `app/api/costura-tiempos/costura_tiempos.ts` no se enumeran como URLs HTTP porque no son `route.ts`. Son módulos auxiliares/importables. Una URL pública requiere que exista un Route Handler `route.ts` en el segmento correspondiente.
+
+## 3. Modelo de base de datos conocido por el código
+
+### Fuente y alcance
+
+Se revisaron las definiciones `CREATE TABLE` de los trece archivos SQL que compartiste. La documentación usa el DDL —tipos, nulabilidad, valores predeterminados, índices y claves foráneas— y no reproduce registros de producción. El archivo de la tabla `productos_tiempos` también contiene datos; solo se leyó su definición de tabla.
+
+Las tablas usan `InnoDB`, `utf8mb4` y la collation `utf8mb4_0900_ai_ci`, salvo opciones específicas declaradas en una columna. La tabla `admin_costura_tiempos_corte` aparece en consultas del código, pero no venía entre estos trece esquemas; sus columnas exactas quedan pendientes.
+
+### Diccionario de datos
+
+#### Cuentas y sesión
+
+| Tabla | Columnas y tipos | Índices / restricciones |
+| --- | --- | --- |
+| `usuarios` | `id INT NOT NULL AUTO_INCREMENT`; `numero_empleado VARCHAR(50) NOT NULL`; `nombre VARCHAR(100) NOT NULL`; `area VARCHAR(100) NOT NULL`; `tipo_usuario VARCHAR(50) NOT NULL`; `created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP` | PK `id`; UNIQUE `numero_empleado`. |
+| `sesiones` | `id INT NOT NULL AUTO_INCREMENT`; `usuario_id INT NOT NULL`; `token_jti VARCHAR(255) NOT NULL`; `creado_en TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`; `expira_en DATETIME NOT NULL` | PK `id`; UNIQUE `token_jti`; KEY `usuario_id`; FK `usuario_id → usuarios.id ON DELETE CASCADE`. |
+| `operadores_disponibilidad` | `id INT NOT NULL AUTO_INCREMENT`; `usuario_id INT NOT NULL`; `disponible_hasta DATETIME NOT NULL`; `creado_en TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP` | PK `id`; KEY `usuario_id`; FK `usuario_id → usuarios.id ON DELETE CASCADE`. |
+
+#### Órdenes, corte y asignación
+
+| Tabla | Columnas y tipos | Índices / restricciones |
+| --- | --- | --- |
+| `ordenes_produccion` | `id INT NOT NULL AUTO_INCREMENT`; `rq VARCHAR(50) NULL`; `op VARCHAR(50) NULL`; `producto VARCHAR(100) NOT NULL`; `nombre VARCHAR(150) NOT NULL`; `observaciones TEXT NULL`; `cantidad INT NOT NULL`; `cliente VARCHAR(150) NULL`; `prioridad VARCHAR(50) NULL`; `orden VARCHAR(50) NULL`; `vigente_desde DATE NULL`; `fecha_de_entrega DATE NULL` | PK `id`. |
+| `admin_costura_ordenes` | `id INT NOT NULL AUTO_INCREMENT`; `rq VARCHAR(50) NULL`; `op VARCHAR(50) NULL`; `producto VARCHAR(255) NULL`; `nombre VARCHAR(255) NULL`; `observaciones TEXT NULL`; `cantidad INT NULL`; `cliente VARCHAR(255) NULL`; `prioridad VARCHAR(50) NULL`; `orden VARCHAR(50) NULL`; `vigente_desde DATE NULL`; `fecha_de_entrega DATE NULL` | PK `id`; UNIQUE `op`. |
+| `admin_costura_cortes` | `id INT NOT NULL AUTO_INCREMENT`; `orden_id INT NOT NULL`; `rq VARCHAR(50) NULL`; `op VARCHAR(50) NULL`; `producto VARCHAR(100) NULL`; `nombre TEXT NULL`; `cantidad INT NULL`; `estatus ENUM('sin cortar','corte en proceso','cortada','asignado','asignacion parcial') DEFAULT 'sin cortar'`; `fecha_inicio DATETIME NULL`; `fecha_fin DATETIME NULL`; `creado_en TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP` | PK `id`. No declara FK en el DDL recibido. |
+| `admin_costura_asignaciones` | `id INT NOT NULL AUTO_INCREMENT`; `orden_id INT NOT NULL`; `rq VARCHAR(50) NULL`; `op VARCHAR(50) NULL`; `producto VARCHAR(100) NULL`; `nombre TEXT NULL`; `cantidad_asignada INT NOT NULL`; `id_operador INT NOT NULL`; `nombre_operador VARCHAR(150) NULL`; `creado_en TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`; `estatus VARCHAR(50) DEFAULT 'asignado'` | PK `id`. No declara FKs en el DDL recibido. |
+| `admin_costura_ordenes_espera` | `orden_id INT NOT NULL`; `motivo ENUM('No hay tela','Problema de calidad','Cambio de fecha') NOT NULL`; `fecha_espera TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP` | PK `orden_id`; FK `orden_id → admin_costura_ordenes.id ON DELETE CASCADE`. |
+| `admin_costura_papelera` | `id INT NOT NULL AUTO_INCREMENT`; `orden_original_id INT NULL`; `rq VARCHAR(50) NULL`; `op VARCHAR(50) NULL`; `producto VARCHAR(100) NULL`; `nombre TEXT NULL`; `observaciones TEXT NULL`; `cantidad INT NULL`; `cliente VARCHAR(150) NULL`; `prioridad VARCHAR(150) NULL`; `vigente_desde DATETIME NULL`; `fecha_de_entrega DATETIME NULL`; `motivo VARCHAR(255) DEFAULT 'Limpieza de corte'`; `eliminado_en TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP` | PK `id`. No declara FK en el DDL recibido. |
+
+#### Producción de costura y soporte
+
+| Tabla | Columnas y tipos | Índices / restricciones |
+| --- | --- | --- |
+| `operador_tiempos_costura` | `id INT NOT NULL AUTO_INCREMENT`; `id_asignacion BIGINT NULL`; `rq VARCHAR(50) NULL`; `op VARCHAR(50) NULL`; `producto VARCHAR(100) NULL`; `nombre TEXT NULL`; `cantidad_asignada INT NULL`; `id_operador INT NOT NULL`; `fecha_inicio DATETIME NULL`; `fecha_fin DATETIME NULL`; `creado_en TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`; `tiempo_segundos INT DEFAULT 0` | PK `id`; KEY `(id_operador, op, fecha_fin)`; KEY `(id_asignacion, fecha_fin)`. No declara FKs en el DDL recibido. |
+| `productos_tiempos` | `id INT NOT NULL AUTO_INCREMENT`; `id_proceso INT NULL`; `cod_proceso VARCHAR(255) NULL`; `descripcion TEXT NULL`; `costura VARCHAR(255) NULL`; `t_costura DECIMAL(12,2) NULL`; `tapizado VARCHAR(255) NULL`; `t_tapizado DECIMAL(12,2) NULL`; `armado VARCHAR(255) NULL`; `t_armado DECIMAL(12,2) NULL`; `montado VARCHAR(255) NULL`; `t_montado DECIMAL(12,2) NULL`; `empaque VARCHAR(255) NULL`; `t_empaque DECIMAL(12,2) NULL`; `corte VARCHAR(255) NULL`; `t_corte DECIMAL(12,2) NULL`; `fecha_actualizacion TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` | PK `id`; UNIQUE `uq_productos_tiempos_cod_proceso` en `cod_proceso`. Los campos `t_*` almacenan segundos según la regla funcional de la aplicación. |
+| `peticiones_tiempos` | `id INT NOT NULL AUTO_INCREMENT`; `op VARCHAR(100) NULL`; `modelo VARCHAR(255) NOT NULL`; `codigo VARCHAR(255) NOT NULL`; `nombre_secundario TEXT NULL`; `estatus VARCHAR(50) DEFAULT 'pendiente'`; `fecha_solicitud TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP` | PK `id`. |
+| `manuales_produccion` | `id INT NOT NULL AUTO_INCREMENT`; `nombre_original VARCHAR(255) NOT NULL`; `codigo_relacion VARCHAR(50) NULL`; `nombre_archivo VARCHAR(255) NOT NULL`; `ruta VARCHAR(255) NOT NULL`; `tamanio INT NOT NULL`; `tipo VARCHAR(100) NOT NULL`; `fecha_subida TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP` | PK `id`. |
+
+### Claves físicas y uniones de aplicación
+
+Solo tres claves foráneas están declaradas en los DDL recibidos:
+
+| Clave foránea | Comportamiento |
+| --- | --- |
+| `sesiones.usuario_id → usuarios.id` | Al borrar el usuario, MySQL elimina sus sesiones (`ON DELETE CASCADE`). |
+| `operadores_disponibilidad.usuario_id → usuarios.id` | Al borrar el usuario, MySQL elimina su disponibilidad (`ON DELETE CASCADE`). |
+| `admin_costura_ordenes_espera.orden_id → admin_costura_ordenes.id` | Al borrar la orden, MySQL elimina la fila de espera (`ON DELETE CASCADE`). |
+
+Las consultas también enlazan `admin_costura_cortes.orden_id` con órdenes/asignaciones y `admin_costura_asignaciones.id_operador` con usuarios, pero esos vínculos **no tienen FK declarada** en los DDL recibidos. `operador_tiempos_costura.id_asignacion` es `BIGINT`, mientras `admin_costura_asignaciones.id` es `INT`; el DDL no declara FK entre ellos. El código permite sesiones históricas con `id_asignacion` nulo.
+
+| Relación usada por la aplicación | Criterio |
+| --- | --- |
+| Orden de costura → corte | `admin_costura_cortes.orden_id = admin_costura_ordenes.id`. |
+| Corte → asignaciones | `admin_costura_asignaciones.orden_id` se compara con el `orden_id` del corte; el código mantiene compatibilidad con cortes antiguos donde se usa el `id` del corte. |
+| Asignación → operador | `admin_costura_asignaciones.id_operador = usuarios.id`. |
+| Tiempo real → asignación | `operador_tiempos_costura.id_asignacion = admin_costura_asignaciones.id`; también hay recuperación por `op`, operador y cantidad para sesiones históricas sin ID. |
+| Petición → métrica | Coincidencia de `codigo` exacto o por los primeros siete caracteres contra `productos_tiempos.cod_proceso`; no es FK. |
+| Manual → producto | Coincidencia de código relacionado o nombre de archivo en la lógica de consulta; no es FK. |
+
+### Diferencias de nombres y columnas que conviene atender
+
+- El DDL confirma tablas en minúsculas (`usuarios`, `sesiones`). Algunas rutas escriben `Usuarios` y `Sesiones` con mayúscula inicial. En MySQL, la sensibilidad a mayúsculas depende del sistema y de `lower_case_table_names`; se recomienda normalizar el código a minúsculas para evitar errores al desplegar en Linux.
+- `admin_costura_ordenes` tiene `UNIQUE KEY (op)`; `ordenes_produccion` no la declara. `productos_tiempos.cod_proceso` también es nullable aunque tenga índice único: MySQL permite múltiples `NULL` en un índice único.
+- La tabla `admin_costura_tiempos_corte` no se incluyó en los archivos. El código escribe `orden_id` y `estado`; se necesita su DDL para completar la referencia.
+- `admin_costura_cortes`, `admin_costura_asignaciones` y `operador_tiempos_costura` copian datos de la orden para el flujo operativo y no declaran FK entre sí. Mantener consistentes esos valores depende de la lógica de aplicación.
+
+### Flujo de producción
+
+<MermaidDiagram
+  title="Ciclo de una orden desde la carga hasta el cronómetro del operador"
+  chart={`flowchart TD
+    upload["Carga de órdenes"] --> production[("ordenes_produccion")]
+    production --> sewing[("admin_costura_ordenes")]
+    sewing --> cut["Corte: iniciar y finalizar"]
+    cut --> cutRows[("admin_costura_cortes")]
+    cutRows --> distribute["Autoasignación por prioridad y disponibilidad"]
+    availability[("operadores_disponibilidad")] --> distribute
+    standards[("productos_tiempos: t_costura en segundos")] --> distribute
+    distribute --> assignments[("admin_costura_asignaciones")]
+    assignments --> operator["Pantalla Operador"]
+    operator --> timer["Iniciar / terminar cronómetro"]
+    timer --> sessions[("operador_tiempos_costura")]
+    cutRows --> estimate["Estimación: cantidad × segundos / 60"]
+    standards --> estimate
+  `}
+/>
+
+### Diagrama de relaciones
+
+Las flechas sólidas identifican claves foráneas físicas declaradas en el DDL. Las flechas punteadas son uniones hechas por SQL o por reglas de la aplicación y no tienen una FK declarada en las tablas entregadas.
+
+<MermaidDiagram
+  title="Claves foráneas y uniones de la aplicación"
+  chart={`flowchart LR
+    users[("usuarios")]
+    sessions[("sesiones")]
+    availability[("operadores_disponibilidad")]
+    orders[("admin_costura_ordenes")]
+    waiting[("admin_costura_ordenes_espera")]
+    cuts[("admin_costura_cortes")]
+    allocations[("admin_costura_asignaciones")]
+    times[("operador_tiempos_costura")]
+    products[("productos_tiempos")]
+    petitions[("peticiones_tiempos")]
+    manuals[("manuales_produccion")]
+
+    users -->|"FK CASCADE"| sessions
+    users -->|"FK CASCADE"| availability
+    orders -->|"FK CASCADE"| waiting
+    orders -.->|"JOIN orden_id; sin FK"| cuts
+    cuts -.->|"suma por orden_id; sin FK"| allocations
+    users -.->|"id_operador; sin FK"| allocations
+    allocations -.->|"id_asignacion; sin FK"| times
+    products -.->|"prefijo de 7 caracteres"| petitions
+    products -.->|"código relacionado"| manuals
+  `}
+/>
+
+## 4. Ejemplo documentado de lectura y escritura
+
+### Estimar una orden
+
+Supongamos producto `155-20000-DGY`, 9 piezas y un registro de familia con `t_costura = 2100`.
+
+```text
+prefijo consultado     = "155-200"
+estándar unitario      = 2100 segundos
+total                  = 9 × 2100 = 18 900 segundos
+valor mostrado         = ceil(18 900 ÷ 60) = 315 minutos
+```
+
+La API de órdenes usa `tiempoCosturaPorPrefijoSql('c')` para agregar `tiempo_base`; la página multiplica por cantidad y divide el total entre 60. Para el cronómetro real, la ruta de inicio inserta una sesión y la ruta de fin suma `TIMESTAMPDIFF(SECOND, fecha_inicio, NOW())` a `tiempo_segundos`.
+
+### Aprobar un tiempo faltante
+
+```json
+{
+  "peticion_id": 812,
+  "modelo": "155-200",
+  "nombre": "Modelo base",
+  "codigo": "155-20000-DGY",
+  "nombre_secundario": "Silla de ejemplo",
+  "costura": "Costura",
+  "tiempo": "2100"
+}
+```
+
+`POST /api/productos/peticiones/aprobar` escribe `codigo` en `cod_proceso`, `nombre_secundario` (o `nombre`) en `descripcion`, `costura` en el campo de operación y `tiempo` en `t_costura`; luego cambia el estado de la petición a `atendido`.
+
+## 5. Observaciones técnicas derivadas del esquema
+
+1. Los trece archivos permiten documentar tipos, índices y claves foráneas de las tablas incluidas. Falta el DDL de `admin_costura_tiempos_corte`, que sí aparece en las rutas de corte iniciadas desde la papelera.
+2. El código mezcla referencias `Usuarios`/`usuarios` y `Sesiones`/`sesiones`, mientras el DDL define nombres en minúsculas. Comprueba `lower_case_table_names` en producción; se recomienda normalizar las consultas a minúsculas para evitar diferencias entre sistemas.
+3. La subconsulta compartida de tiempos excluye `N/A`, `NA` y `N/D`; el endpoint de peticiones verifica que el valor de costura no esté vacío y que el tiempo sea positivo, pero no excluye esos literales. Conviene unificar esa validación para evitar que una petición se marque atendida mientras la consulta de estimación ignora el registro.
+4. `admin_costura_ordenes` y `admin_costura_cortes` duplican datos de la orden para el flujo operativo. Las tablas de cortes, asignaciones y tiempos reales no declaran FKs entre ellas en el DDL recibido; las consultas dependen de que los identificadores y datos copiados permanezcan consistentes.
+5. `productos_tiempos.cod_proceso` permite `NULL` aunque tenga índice único. MySQL permite más de un `NULL` en ese índice; la API de catálogo exige código no vacío al crear o modificar productos.
+
+## 6. Cobertura del esquema entregado
+
+Los archivos recibidos documentan estas trece tablas: `admin_costura_asignaciones`, `admin_costura_cortes`, `admin_costura_ordenes`, `admin_costura_ordenes_espera`, `admin_costura_papelera`, `manuales_produccion`, `operador_tiempos_costura`, `operadores_disponibilidad`, `ordenes_produccion`, `peticiones_tiempos`, `productos_tiempos`, `sesiones` y `usuarios`.
+
+Los SQL se exportaron por tabla, no como un DDL consolidado de toda la base. El archivo de `productos_tiempos` contiene filas además de la definición; esta documentación solo utiliza su `CREATE TABLE`. Para cerrar el inventario de objetos que usa la aplicación, falta recibir la estructura de `admin_costura_tiempos_corte` y cualquier otra tabla no incluida en esos archivos.
+
+## 7. Fuentes en el repositorio
+
+- Páginas: `app/admin/**/page.tsx`, `app/admin_costura/**/page.tsx`, `app/operador/page.tsx`.
+- Endpoints: `app/api/**/route.ts`.
+- Base de datos: `lib/db.ts` y las consultas SQL de los Route Handlers.
+- Regla de tiempo: `lib/productosTiempos.ts`.
+- Paginación: `lib/pagination.ts` y `lib/usePaginatedApi.ts`.
+- Eventos de actualización: `server.mjs`, `components/RealtimeProvider.tsx` y `lib/useRealtimeRefresh.ts`.

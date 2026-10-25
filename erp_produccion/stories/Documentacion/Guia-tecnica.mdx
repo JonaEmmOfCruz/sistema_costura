@@ -1,0 +1,376 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+import MermaidDiagram from '../../.storybook/MermaidDiagram'
+
+<Meta title="Documentación/Guía técnica" />
+
+# Guía técnica
+
+## 1. Alcance y convenciones
+
+Esta guía describe cómo fluye la información entre las pantallas de costura, las API y MySQL. Está dirigida a desarrollo, soporte técnico y mantenimiento del sistema.
+
+Convenciones usadas en los ejemplos:
+
+- `t_costura` es un **tiempo unitario en segundos**.
+- `cantidad` o `cantidad_asignada` son piezas, no segundos.
+- `tiempo_total_segundos = cantidad × t_costura`.
+- La UI del administrador convierte el total a minutos con `Math.ceil(segundos / 60)`. Es redondeo hacia arriba al minuto entero, no una conversión de la métrica almacenada.
+- Los códigos mostrados son ejemplos. No contienen credenciales ni datos de conexión.
+
+## 2. Arquitectura del proyecto
+
+| Capa | Ubicación | Responsabilidad |
+| --- | --- | --- |
+| Pantallas Next.js | `app/**/page.tsx` | Presentar vistas y gestionar estado del navegador. |
+| API | `app/api/**/route.ts` | Validar solicitudes, ejecutar reglas de negocio y responder JSON. |
+| Acceso a MySQL | `lib/db.ts` | Crear el pool `mysql2/promise` reutilizado por las API. |
+| Regla compartida de familia | `lib/productosTiempos.ts` | Generar la subconsulta SQL que obtiene el estándar de costura de una familia. |
+| Paginación | `lib/pagination.ts`, `lib/usePaginatedApi.ts` | Limitar filas por solicitud y entregar páginas a la interfaz. |
+| Refresco en vivo | `server.mjs`, `components/RealtimeProvider.tsx`, `lib/useRealtimeRefresh.ts` | Transportar eventos de actualización y volver a consultar las vistas suscritas. |
+| Componentes compartidos | `components/` | Tablas, indicadores de carga y elementos visuales reutilizables. |
+| Manuales | `app/api/manuales/**`, `public/uploads/` | Resolver y servir documentos asociados a productos. |
+
+El proyecto usa Next.js App Router. Las rutas dentro de `app/api` son Route Handlers y se ejecutan del lado del servidor; las páginas que usan estado y efectos de React declaran `'use client'`.
+
+### Diagrama de arquitectura por módulo
+
+<MermaidDiagram
+  title="Páginas, Route Handlers y persistencia"
+  chart={`flowchart LR
+    subgraph Admin["Módulo admin"]
+      adminPages["/admin, usuarios, subir_ordenes, subir_tiempos, subir_manuales, exportar"]
+    end
+    subgraph Sewing["Módulo admin_costura"]
+      sewingPages["/admin_costura, ordenes, operadores, asignar_orden, papelera"]
+    end
+    subgraph Operator["Módulo operador"]
+      operatorPage["/operador"]
+    end
+    adminPages --> adminApi["/api/admin, /api/usuarios, /api/ordenes, /api/productos, /api/manuales, /api/reportes"]
+    sewingPages --> sewingApi["/api/admin_costura/*, /api/operadores/*"]
+    operatorPage --> operatorApi["/api/operador/*, /api/costura-tiempos/*, /api/manuales"]
+    adminApi --> mysql[("MySQL")]
+    sewingApi --> mysql
+    operatorApi --> mysql
+    apiEvents["Mutaciones"] --> socket["Socket.IO / refresco"]
+    socket -.-> adminPages
+    socket -.-> sewingPages
+    socket -.-> operatorPage
+  `}
+/>
+
+## Inventario técnico por página y Route Handler
+
+La tabla indica qué Route Handlers alimentan cada página y cuál es su responsabilidad dentro de ese flujo. El [Mapa del sistema](?path=/docs/documentaci%C3%B3n-mapa-del-sistema--docs) mantiene el catálogo completo de métodos, parámetros y contratos; esta sección explica la integración pantalla por pantalla.
+
+### `admin`
+
+| Página | Route Handlers relacionados | Uso y datos principales |
+| --- | --- | --- |
+| `app/admin/page.tsx` (`/admin`) | `GET /api/me`; `GET /api/admin/analisis`; `GET /api/reportes/esquema`; `POST /api/reportes/dinamicos`; según widgets, `GET /api/usuarios/stats` | Valida sesión y consulta agregados/reportes del panel. |
+| `app/admin/usuarios/page.tsx` (`/admin/usuarios`) | `GET /api/usuarios`; `POST /api/usuarios/registrar`; `PUT /api/usuarios`; `DELETE /api/usuarios?id=` | Lista, crea, actualiza y elimina cuentas. La tabla de identidad es `usuarios`; el acceso/sesión utiliza `sesiones`. |
+| `app/admin/subir_ordenes/page.tsx` (`/admin/subir_ordenes`) | `GET /api/ordenes`; `POST /api/ordenes/subir`; `GET /api/costura-asignaciones`; `GET /api/costura-cortes`; `GET /api/costura-tiempos` | Importa órdenes y consulta listas paginadas para tabla e historial. Escribe órdenes generales y órdenes operativas de costura. |
+| `app/admin/subir_tiempos/page.tsx` (`/admin/subir_tiempos`) | `GET /api/productos/tiempos`; `POST/PUT/DELETE /api/productos/crud`; `POST /api/productos/subir-tiempos`; `GET/POST /api/productos/peticiones`; `GET /api/productos/buscar_modelo`; `POST /api/productos/peticiones/aprobar`; `POST /api/productos/peticiones/rechazar` | Gestiona el catálogo `productos_tiempos` y `peticiones_tiempos`. Las métricas `t_*` se guardan como segundos; la búsqueda por código pagina resultados. |
+| `app/admin/subir_manuales/page.tsx` (`/admin/subir_manuales`) | `GET /api/manuales`; `POST /api/manuales/subir` | Consulta y registra `manuales_produccion`; el archivo físico queda en almacenamiento de la aplicación. |
+| `app/admin/exportar/page.tsx` (`/admin/exportar`) | `GET /api/admin/exportar` | Valida sesión y filtros, consulta resumen y produce descargas de conjuntos disponibles. |
+
+### `admin_costura`
+
+<MermaidDiagram
+  title="Rutas del ciclo de costura"
+  chart={`flowchart TD
+    import["POST /api/ordenes/subir"] --> order["admin_costura_ordenes"]
+    order --> queue["GET /api/admin_costura/ordenes"]
+    queue -->|"iniciar corte"| cutStart["POST /api/admin_costura/corte/iniciar"]
+    cutStart --> cutFinish["POST /api/admin_costura/corte/finalizar"]
+    cutFinish --> cutTable[("admin_costura_cortes")]
+    cutTable --> assign["POST /api/admin_costura/auto_asignar"]
+    assign --> allocations[("admin_costura_asignaciones")]
+    availability["GET/POST /api/operadores/*"] --> assign
+    allocations --> operator["GET /api/operador/asignaciones"]
+    cutTable --> history["GET /api/admin_costura/cortadas"]
+    history --> metrics[("productos_tiempos")]
+  `}
+/>
+
+| Página | Route Handlers relacionados | Uso y datos principales |
+| --- | --- | --- |
+| `app/admin_costura/page.tsx` (`/admin_costura`) | `GET /api/me` | Portada informativa y comprobación de usuario actual. |
+| `app/admin_costura/ordenes/page.tsx` (`/admin_costura/ordenes`) | `GET /api/admin_costura/ordenes?dataset=ordenes`; `GET /api/admin_costura/ordenes?dataset=espera`; `POST /api/admin_costura/ordenes/espera`; `POST /api/admin_costura/corte/iniciar`; `POST /api/admin_costura/corte/finalizar`; `POST /api/admin_costura/papelera` | Gestiona cola, espera, corte y retiro. Las órdenes se leen de `admin_costura_ordenes`; el corte persiste en `admin_costura_cortes`. |
+| `app/admin_costura/operadores/page.tsx` (`/admin_costura/operadores`) | `GET /api/operadores`; `POST /api/operadores/habilitar`; `POST /api/operadores/deshabilitar`; `POST /api/admin_costura/auto_asignar`; `GET /api/admin_costura/asignadas` | Administra disponibilidad y consulta carga. La autoasignación escribe `admin_costura_asignaciones` usando disponibilidad, capacidad, prioridades y métricas. |
+| `app/admin_costura/asignar_orden/page.tsx` (`/admin_costura/asignar_orden`) | `POST /api/admin_costura/auto_asignar`; `GET /api/admin_costura/cortadas`; `POST /api/admin_costura/asignar`; `POST /api/productos/peticiones`; `GET /api/productos/peticiones?history=1` | Presenta avance, estimación y solicitudes. `GET /api/admin_costura/cortadas` consulta el estándar en segundos; la interfaz convierte el total a minutos. |
+| `app/admin_costura/papelera/page.tsx` (`/admin_costura/papelera`) | `GET /api/admin_costura/papelera`; `POST /api/admin_costura/papelera/restaurar` | Lista y restaura órdenes. Existen rutas auxiliares de corte desde papelera para ese flujo: `POST /api/admin_costura/papelera/corte/iniciar` y `/finalizar`. |
+
+### `operador`
+
+<MermaidDiagram
+  title="Secuencia API de una sesión real"
+  chart={`sequenceDiagram
+    actor Operator as Operador
+    participant Page as /operador
+    participant Assignments as GET /api/operador/asignaciones
+    participant Start as POST /api/operador/costura/iniciar
+    participant Finish as POST /api/costura-tiempos/terminar
+    participant DB as MySQL
+    Operator->>Page: Abre sus asignaciones
+    Page->>Assignments: id_operador
+    Assignments->>DB: consulta asignaciones y sesiones
+    DB-->>Page: datos + estándar en segundos
+    Operator->>Page: Iniciar
+    Page->>Start: asignacion_id
+    Start->>DB: crea/reanuda sesión
+    Operator->>Page: Finalizar
+    Page->>Finish: id_asignacion + cierre
+    Finish->>DB: acumula tiempo_segundos
+    DB-->>Page: confirmación
+  `}
+/>
+
+| Página | Route Handlers relacionados | Uso y datos principales |
+| --- | --- | --- |
+| `app/operador/page.tsx` (`/operador`) | `GET /api/me`; `GET /api/operador/asignaciones?id_operador=`; `POST /api/operador/costura/iniciar`; `POST /api/costura-tiempos/terminar`; `GET /api/manuales?codigo=` | Muestra asignaciones, manual y cronómetro. Las sesiones se persisten en `operador_tiempos_costura`; el tiempo real se almacena en segundos. El estándar de `productos_tiempos` se presenta aparte para referencia. |
+
+### Route Handlers compartidos y auxiliares
+
+Estas rutas se consumen desde más de una vista, se ejecutan indirectamente o dan servicio a módulos transversales:
+
+| Área | Routes | Responsabilidad |
+| --- | --- | --- |
+| Sesión | `POST /api/login`, `GET /api/me` | Crear/autenticar sesión y recuperar el usuario actual. |
+| Catálogos e historial | `GET /api/ordenes`, `GET /api/costura-asignaciones`, `GET /api/costura-cortes`, `GET /api/costura-tiempos` | Consultas paginadas para órdenes e historiales de producción. |
+| Reportes | `GET /api/reportes/esquema`, `POST /api/reportes/dinamicos`, `GET /api/usuarios/stats`, `GET /api/admin/analisis` | Descubrimiento de columnas y agregados para panel/reportes. |
+| Productos | `GET /api/productos/tiempos`, `POST/PUT/DELETE /api/productos/crud`, `POST /api/productos/subir-tiempos`, `GET /api/productos/buscar_modelo`, `GET/POST /api/productos/peticiones`, `POST /api/productos/peticiones/aprobar`, `POST /api/productos/peticiones/rechazar` | Catálogo, carga masiva y ciclo de vida de estándares faltantes. |
+| Manuales | `GET /api/manuales`, `POST /api/manuales/subir` | Búsqueda/entrega y carga de manuales. |
+| Capacidad de costura | `GET /api/operadores`, `POST /api/operadores/habilitar`, `POST /api/operadores/deshabilitar`, `GET /api/admin_costura/asignadas`, `POST /api/admin_costura/auto_asignar`, `POST /api/admin_costura/asignar` | Disponibilidad y distribución automática/manual. |
+| Papelera y corte | `GET/POST /api/admin_costura/papelera`, `POST /api/admin_costura/papelera/restaurar`, `POST /api/admin_costura/papelera/corte/iniciar`, `POST /api/admin_costura/papelera/corte/finalizar`, `GET /api/admin_costura/corte` | Recuperación y consulta de los flujos relacionados con papelera/corte. |
+
+El inventario completo de cada `route.ts`, con método, parámetros y efecto, aparece en el [Mapa del sistema](?path=/docs/documentaci%C3%B3n-mapa-del-sistema--docs#2-catálogo-de-rutas-http). Los archivos `app/api/admin_costura/asignar/asignar.ts` y `app/api/costura-tiempos/costura_tiempos.ts` son módulos auxiliares, no rutas HTTP.
+
+## 3. Modelo de datos implicado en tiempos
+
+| Tabla | Campos utilizados por este flujo | Uso |
+| --- | --- | --- |
+| `productos_tiempos` | `id`, `id_proceso`, `cod_proceso`, `descripcion`, `costura`, `t_costura`, `tapizado`, `t_tapizado`, `armado`, `t_armado`, `montado`, `t_montado`, `empaque`, `t_empaque`, `corte`, `t_corte`, `fecha_actualizacion` | Catálogo de productos, procesos y estándares. Los campos `t_*` son segundos. |
+| `admin_costura_cortes` | `id`, `orden_id`, `rq`, `op`, `producto`, `nombre`, `cantidad`, `estatus` | Orden que terminó corte y queda disponible para reparto. |
+| `admin_costura_asignaciones` | `id`, `orden_id`, `op`, `producto`, `cantidad_asignada`, `id_operador`, `estatus` | Distribución de piezas a cada operador. |
+| `operador_tiempos_costura` | `id_asignacion`, `op`, `producto`, `cantidad_asignada`, `id_operador`, `fecha_inicio`, `fecha_fin`, `tiempo_segundos` | Sesiones reales del cronómetro del operador. |
+| `peticiones_tiempos` | `id`, `op`, `modelo`, `codigo`, `nombre_secundario`, `estatus`, `fecha_solicitud` | Solicitudes de métricas sin resolver y su historial. |
+| `operadores_disponibilidad` | `usuario_id`, `disponible_hasta` | Disponibilidad que usa la autoasignación. |
+
+El código de proceso es único en `productos_tiempos` según el índice `uq_productos_tiempos_cod_proceso`. Los cambios de código deben respetar esa unicidad.
+
+## 4. Regla de búsqueda de tiempo por familia
+
+La regla compartida se encuentra en `lib/productosTiempos.ts` como `tiempoCosturaPorPrefijoSql(aliasProducto)`.
+
+### Pasos de la búsqueda
+
+1. Lee `producto` del registro de orden o asignación.
+2. Quita espacios externos y comillas simples o dobles que puedan venir alrededor del código.
+3. Obtiene los primeros siete caracteres. Por ejemplo, `155-20000-DGY` produce `155-200`.
+4. Busca códigos de `productos_tiempos` cuyo comienzo coincida con ese prefijo. Acepta variantes con comillas iniciales.
+5. Descarta `t_costura` nulo o igual a cero, y descarta una actividad `costura` vacía, `N/A`, `NA` o `N/D`.
+6. Ordena primero el código base de siete caracteres; luego la variante más corta y finalmente el menor `id`.
+7. Devuelve un único `t_costura`, que permanece en segundos.
+
+Esto evita que una variante de la familia con tiempo cero gane a otra variante que sí contiene una métrica válida.
+
+### Validación que debe considerarse en peticiones
+
+Hay una diferencia actual entre rutas: la subconsulta compartida filtra explícitamente `N/A`, `NA` y `N/D`; el `POST /api/productos/peticiones` y el resolvedor ejecutado por su `GET` verifican `t_costura > 0` y que `costura` no sea nulo ni vacío, pero no excluyen esos literales. Si un registro tiene `costura = 'N/A'` y un tiempo positivo, la petición podría quedar marcada como atendida aunque la subconsulta de la orden ignore ese registro. Mantén estos campos limpios y, al modificar el comportamiento, conviene compartir la misma regla SQL entre rutas.
+
+### Ejemplo numérico de extremo a extremo
+
+Producto solicitado: `155-20000-DGY`; cantidad: `9`; métrica válida de familia: `2100` segundos por pieza.
+
+```text
+familia                    = primeros 7 caracteres = "155-200"
+tiempo unitario            = 2100 segundos/pieza
+tiempo total                = 9 piezas × 2100 = 18 900 segundos
+tiempo total para mostrar  = ceil(18 900 / 60) = 315 minutos
+equivalencia legible        = 5 horas y 15 minutos
+umbral del turno            = 480 minutos = 28 800 segundos
+resultado                  = no excede 480 minutos
+```
+
+Con 64 piezas y el mismo estándar, el total sería `134 400` segundos, `2 240` minutos o `37 h 20 min`; la UI mostraría `2240 min` y la etiqueta `+ 8 Horas`.
+
+La pantalla no debe multiplicar un dato ya convertido a minutos. El contrato del API entrega el estándar en segundos; la conversión se realiza en la presentación.
+
+### Fragmento conceptual para consultar una familia
+
+Este ejemplo ayuda a inspeccionar los datos; la aplicación usa la subconsulta centralizada y aplica también el orden de preferencia.
+
+```sql
+SELECT id, cod_proceso, costura, t_costura
+FROM productos_tiempos
+WHERE cod_proceso LIKE '155-200%'
+  AND t_costura > 0
+  AND costura IS NOT NULL
+  AND TRIM(CAST(costura AS CHAR)) <> ''
+  AND UPPER(TRIM(CAST(costura AS CHAR))) NOT IN ('N/A', 'NA', 'N/D')
+ORDER BY CHAR_LENGTH(TRIM(cod_proceso)), id;
+```
+
+Al ejecutar manualmente una consulta, considera también posibles comillas iniciales en `cod_proceso`; el helper de la aplicación sí contempla esa normalización al comparar.
+
+## 5. Flujo de una petición de tiempo
+
+### Caso A: no hay métrica válida
+
+1. En `app/admin_costura/asignar_orden/page.tsx`, el usuario pulsa **Solicitar tiempo** para una orden sin `tiempo_base`.
+2. La página envía a `POST /api/productos/peticiones` el código, OP y descripción. El servidor deriva `modelo` del prefijo de siete caracteres; no confía en un prefijo distinto enviado por el cliente.
+3. La API abre una transacción y busca un tiempo positivo en la familia.
+4. Si no encuentra candidato, inserta la petición con estatus `pendiente` y responde con `pendiente: true`.
+5. La tarjeta aparece en `app/admin/subir_tiempos/page.tsx` dentro de la lista de peticiones.
+6. Administración pulsa **Asignar Tiempo**; la API `GET /api/productos/buscar_modelo` intenta completar datos por código/familia y la interfaz presenta los campos editables.
+7. `POST /api/productos/peticiones/aprobar` guarda o actualiza el registro en `productos_tiempos` y cambia la petición a `atendido`.
+
+### Caso B: sí hay métrica en la familia
+
+`POST /api/productos/peticiones` crea o actualiza el producto solicitado usando `costura` y `t_costura` de la variante válida. La petición queda `atendido` y la respuesta incluye `asignadoAutomaticamente: true`, `tiempo` y `familia`. La tabla de órdenes actualiza su estado local para mostrar el estimado sin esperar otra navegación.
+
+### Historial
+
+`GET /api/productos/peticiones` devuelve solo pendientes por defecto. Con `?history=1`, incluye todos los estados y calcula `tiempo_asignado` para la tarjeta del historial. La vista administrativa usa ese modo para mostrar **Pendiente**, **Atendida** o **Rechazada**.
+
+## 6. Autoasignación, prioridades y capacidad
+
+Al abrir la página de órdenes cortadas, el cliente llama `POST /api/admin_costura/auto_asignar` y después carga los resultados. El servidor ejecuta la distribución dentro de una transacción.
+
+- Solo considera operadores de tipo `operador` cuya disponibilidad siga vigente.
+- Usa `28 800` segundos como capacidad de referencia de ocho horas.
+- Toma en cuenta las asignaciones activas; una persona con asignación activa queda ocupada para una segunda tarea hasta liberar su turno o reanudar una pausa.
+- Reanuda las asignaciones pausadas antes de repartir más trabajo, cuando existe capacidad.
+- Ordena las órdenes por prioridad configurada y antigüedad del registro.
+- Reparte piezas de forma iterativa entre operadores que tengan capacidad.
+- Puede pausar una tarea normal para atender una orden de prefijo prioritario; al liberar capacidad, la tarea pausada puede reanudarse completa o parcialmente.
+- Actualiza el estado del corte a `asignado` o `asignacion parcial` según las piezas que queden.
+
+La lista de prefijos prioritarios está actualmente duplicada en `app/admin_costura/asignar_orden/page.tsx`, `app/operador/page.tsx` y `app/api/admin_costura/auto_asignar/route.ts`. Al modificarla, actualiza las tres ubicaciones para que la etiqueta visual y la regla del servidor no diverjan.
+
+### Cálculo de capacidad del reparto manual
+
+`POST /api/admin_costura/asignar` recibe `{ "orden_id": 123 }`, calcula las piezas que faltan y usa los segundos libres para determinar capacidad por operador. Este endpoint no es el mismo que el ciclo automático `auto_asignar`.
+
+## 7. Contratos de API relevantes
+
+| Método y ruta | Entrada principal | Salida o efecto |
+| --- | --- | --- |
+| `GET /api/admin_costura/cortadas?page=1&pageSize=50` | Parámetros de paginación | `ordenes`, `pagination`, `tiempo_base` unitario en segundos y `total_asignado`. |
+| `POST /api/admin_costura/auto_asignar` | Sin cuerpo | Ejecuta la distribución automática de pendientes y pausadas. |
+| `POST /api/admin_costura/asignar` | `{ "orden_id": 123 }` | Reparte las unidades faltantes entre operadores con capacidad. |
+| `GET /api/operador/asignaciones?id_operador=45` | ID del operador | Asignaciones activas, métrica base/sugerida en segundos y tiempos reales acumulados. |
+| `POST /api/operador/costura/iniciar` | `{ "asignacion_id": 456 }` | Abre una sesión y devuelve marcas de tiempo de servidor y segundos. |
+| `POST /api/costura-tiempos/terminar` | `{ "id_asignacion": 456, "fecha_fin": "...", "tiempo_segundos": 750, "tipo": "operador" }` | Cierra la sesión abierta y marca la asignación terminada. |
+| `GET /api/productos/tiempos?page=1&pageSize=50` | Parámetros de paginación | `productos` con campos `t_*` numéricos en segundos. |
+| `POST /api/productos/crud` | `{ "accion": "agregar", "producto": { ... } }` | Inserta o actualiza por código único; requiere código y descripción. |
+| `PUT /api/productos/crud` | `{ "accion": "modificar_producto", "id": 10, "producto": { "t_costura": 720 } }` | Actualiza solo campos enviados, valida campos de tiempo y confirma en transacción. |
+| `POST /api/productos/subir-tiempos` | `multipart/form-data`, campo `file` | Importa archivo de productos y devuelve conteos de procesados, omitidos y consolidados. |
+| `GET /api/productos/peticiones?history=1` | Parámetros de página | Historial paginado de peticiones y `tiempo_asignado`. |
+| `POST /api/productos/peticiones` | `{ "op": "OP/1", "codigo": "155-20000-DGY", "nombre_secundario": "..." }` | Registra una pendiente o asigna automáticamente una métrica familiar. |
+| `POST /api/productos/peticiones/aprobar` | `peticion_id`, `codigo`, `nombre_secundario`, `costura`, `tiempo` | Guarda métrica en segundos y marca petición como atendida. |
+| `POST /api/productos/peticiones/rechazar` | `{ "peticion_id": 1 }` | Marca la petición como `rechazado`. |
+
+Los ejemplos ilustran los campos principales. Revisa el `route.ts` correspondiente antes de integrar un cliente externo o cambiar la estructura del JSON.
+
+## 8. Paginación y búsqueda en cliente
+
+`lib/pagination.ts` define un tamaño predeterminado de 50 filas y un máximo de 100. `lib/usePaginatedApi.ts` solicita `page` y `pageSize`, agrega resultados al usar **Cargar siguientes 50** y lee `pagination.hasMore`.
+
+El filtro de **Catálogo editable** se ejecuta en el navegador sobre `productos`, es decir, sobre las páginas ya cargadas. Para encontrar un código fuera de las páginas cargadas, agrega más páginas con el botón antes de concluir que no existe.
+
+Al desarrollar un endpoint paginado:
+
+1. Lee los parámetros con `readPageParams(request)`.
+2. Solicita `pageSize + 1` filas para detectar si hay otra página.
+3. Devuelve `pageRows(rows, pageSize)` y `pageMetadata(page, pageSize, rows.length)`.
+4. Ordena de forma estable para que una página no repita ni pierda filas entre solicitudes.
+
+## 9. Importación del catálogo de tiempos
+
+La ruta `app/api/productos/subir-tiempos/route.ts` lee la primera hoja del archivo con SheetJS, normaliza encabezados a minúsculas y acepta dos esquemas.
+
+### Esquema completo
+
+Incluye todos estos encabezados para que se reconozca como carga completa:
+
+```text
+id_proceso,cod_proceso,descripcion,costura,t_costura,tapizado,t_tapizado,
+armado,t_armado,montado,t_montado,empaque,t_empaque,corte,t_corte
+```
+
+Los valores `t_*` son numéricos y están en segundos. Puedes dejar celdas de otras operaciones vacías cuando no correspondan.
+
+### Esquema compacto
+
+Si no se detectan todos los encabezados completos, la API intenta el esquema alternativo:
+
+```text
+codigo,nombre_secundario,costura,tiempo
+```
+
+En este formato, `tiempo` alimenta `t_costura` y también se interpreta como segundos por pieza. La descripción se obtiene de `nombre_secundario` o, como alternativa, de `nombre`.
+
+Las filas sin código se omiten. Códigos repetidos dentro del archivo se consolidan; en métricas repetidas conserva el mayor tiempo y se usa una transacción para guardar lotes de hasta 200 productos. La escritura usa `ON DUPLICATE KEY UPDATE`, por lo que una carga puede modificar datos existentes: valida el archivo antes de subirlo.
+
+## 10. Validación y consistencia
+
+- `lib/productosTiempos.ts` centraliza la lectura familiar usada por las consultas de órdenes y operador.
+- `app/api/productos/crud/route.ts` valida que las métricas sean numéricas y mayores o iguales a cero; las celdas vacías se convierten a `NULL`.
+- Una métrica de cero puede guardarse en catálogo, pero no se considera un tiempo disponible en la subconsulta compartida.
+- Las modificaciones de filas usan el ID como identidad. Cambiar `cod_proceso` puede converger con otro código; el endpoint debe manejar la fusión transaccional y la restricción única.
+- Los cambios que alteren prefijos, selección de variantes, unidades o límites de turno requieren revisar todas las pantallas que muestran o consumen tiempos.
+- Las sesiones reales se miden con diferencias de fecha en MySQL (`TIMESTAMPDIFF(SECOND, ...)`) y se acumulan en `tiempo_segundos`.
+
+## 11. Actualizaciones en vivo
+
+`server.mjs` integra Socket.IO con el servidor web y define rutas que notifican cambios. `components/RealtimeProvider.tsx` instala el cliente; `lib/useRealtimeRefresh.ts` escucha `app:data-changed`, agrupa eventos cercanos y llama la función de recarga de la pantalla.
+
+Al añadir una mutación:
+
+1. Confirma si la ruta ya está registrada entre las rutas que notifican.
+2. Si la mutación afecta una tabla visible en vivo, emite la notificación tras completarla.
+3. En la página, usa `useRealtimeRefresh` con una función estable que recargue las consultas necesarias.
+4. Asegura que los estados locales optimistas se reconcilien con la respuesta del servidor.
+
+## 12. Configuración y comandos
+
+Desde `erp_produccion/`:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+La conexión de `lib/db.ts` utiliza estas variables de entorno:
+
+| Variable | Uso | Valor predeterminado en código |
+| --- | --- | --- |
+| `DB_HOST` | Host MySQL | `localhost` |
+| `DB_USER` | Usuario MySQL | `root` |
+| `DB_PASSWORD` | Contraseña MySQL | cadena vacía |
+| `DB_NAME` | Base de datos | `system_produccion` |
+| `DB_PORT` | Puerto MySQL | `3306` |
+
+Usa `.env.local` o el almacén de variables del entorno de despliegue. No documentes ni subas valores reales de credenciales.
+
+### Storybook
+
+```bash
+pnpm storybook        # servidor local en http://localhost:6006
+pnpm build-storybook  # genera storybook-static/
+```
+
+`.storybook/main.ts` carga MDX desde `stories/**/*.mdx` y deja habilitada la búsqueda de historias CSF. `.storybook/preview.ts` carga los estilos globales y activa el modo App Router de Next.js. Las guías de usuario y técnica son páginas documentales; no requieren una conexión a MySQL para leerlas.
+
+## 13. Mantenimiento de esta documentación
+
+Cuando cambie el producto:
+
+1. Actualiza primero las reglas de usuario y los contratos descritos aquí.
+2. Incluye el ejemplo antes/después con unidades, cantidades y resultado esperado.
+3. Revisa la pantalla, el Route Handler y las tablas involucradas.
+4. Ejecuta `pnpm build-storybook` para verificar que MDX y configuración compilan.
+5. Si cambian los tipos de datos, contratos o servicios, revisa además `pnpm build`.
+6. Usa ejemplos ficticios y no pegues exportaciones con datos personales de producción.

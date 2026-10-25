@@ -32,6 +32,20 @@ También puedes definir `LOW_RESOURCE_MODE=true` en el entorno del servicio que 
 
 En pantallas de hasta 1024 px se reducen animaciones y transiciones decorativas; en dispositivos táctiles los controles tienen un área mínima de 44 px. Los cronómetros de costura y corte se actualizan en componentes aislados para que el resto de la pantalla no se vuelva a renderizar cada segundo.
 
+## Documentación con Storybook
+
+Storybook contiene la [guía de usuario](stories/Documentacion/Guia-de-usuario.mdx), la [guía técnica](stories/Documentacion/Guia-tecnica.mdx) y el [mapa de páginas, rutas API y base de datos](stories/Documentacion/Mapa-del-sistema.mdx). Para consultarlas, ejecuta desde este directorio:
+
+```bash
+pnpm storybook
+```
+
+Para generar el sitio estático de documentación:
+
+```bash
+pnpm build-storybook
+```
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

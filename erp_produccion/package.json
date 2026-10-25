@@ -6,7 +6,9 @@
     "dev": "node server.mjs --dev",
     "build": "next build",
     "start": "node server.mjs",
-    "lint": "eslint"
+    "lint": "eslint",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@iconify/react": "^6.0.2",
@@ -25,6 +27,8 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@storybook/addon-docs": "^10.6.3",
+    "@storybook/nextjs-vite": "^10.6.3",
     "@tailwindcss/postcss": "^4",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
@@ -32,6 +36,9 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
+    "mermaid": "^12.2.0",
+    "remark-gfm": "^4.0.1",
+    "storybook": "^10.6.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

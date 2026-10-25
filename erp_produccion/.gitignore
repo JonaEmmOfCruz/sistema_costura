@@ -19,6 +19,10 @@
 
 # production
 /build
+/storybook-static/
+
+# pnpm store may be configured inside the repository by local environments
+../.pnpm-store/
 
 # misc
 .DS_Store
