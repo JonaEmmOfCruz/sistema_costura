@@ -22,6 +22,7 @@ const autoAssignPaths = new Set([
 ])
 const notifyOnlyPaths = new Set([
   '/api/admin_costura/auto_asignar',
+  '/api/productos/peticiones',
 ])
 const readOnlyPostPaths = new Set([
   '/api/reportes/dinamicos',

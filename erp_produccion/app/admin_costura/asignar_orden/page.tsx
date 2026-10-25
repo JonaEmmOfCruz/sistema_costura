@@ -33,7 +33,7 @@ interface ModalState {
 }
 
 export default function OrdenesCortadasPage() {
-    const { data: ordenesCortadas, loading, loadingMore, hasMore, loadMore, reload: recargarCortes } = usePaginatedApi<any>('/api/admin_costura/cortadas', 'ordenes', false)
+    const { data: ordenesCortadas, setData: setOrdenesCortadas, loading, loadingMore, hasMore, loadMore, reload: recargarCortes } = usePaginatedApi<any>('/api/admin_costura/cortadas', 'ordenes', false)
     const { data: peticionesPagina, loading: loadingPeticiones, loadingMore: loadingMorePeticiones, hasMore: hasMorePeticiones, loadMore: cargarMasPeticiones, reload: recargarPeticiones } = usePaginatedApi<any>('/api/productos/peticiones', 'peticiones', false)
     const [modal, setModal] = useState<ModalState>({ isOpen: false, type: 'confirm', message: '' })
     
@@ -89,12 +89,9 @@ export default function OrdenesCortadasPage() {
 
     const cerrarModal = () => setModal(prev => ({ ...prev, isOpen: false }))
 
-    // Función para extraer el modelo (2do string del formato string-string-string...)
-    const extraerModelo = (producto: string) => {
-        if (!producto) return '';
-        const partes = producto.split('-');
-        return partes.length >= 2 ? partes[1].trim() : partes[0].trim();
-    }
+    // La familia de tiempos se identifica con los primeros 7 caracteres del código.
+    const extraerPrefijoProducto = (producto: string) =>
+        String(producto || '').trim().replace(/^["']|["']$/g, '').trim().slice(0, 7)
 
     const formatearTiempoEjecucion = (inicio: any, fin: any) => {
         if (!inicio || !fin) return '-'
@@ -116,12 +113,19 @@ export default function OrdenesCortadasPage() {
         e.stopPropagation();
         const rowId = row.op || row.producto;
 
-        // Evitar múltiples ejecuciones si ya está procesando o si ya fue solicitado
-        if (solicitandoId === rowId || solicitados[rowId] || peticionesBD[row.op] || peticionesBD[row.producto]) return;
+        if (solicitandoId === rowId) return
+        if (solicitados[rowId] || peticionesBD[row.op] || peticionesBD[row.producto]) {
+            setModal({
+                isOpen: true,
+                type: 'success',
+                message: 'Esta solicitud ya fue registrada y aparece en el historial de Peticiones de Tiempo Solicitadas.',
+            })
+            return
+        }
 
         setSolicitandoId(rowId)
 
-        const modeloExtraido = extraerModelo(row.producto);
+        const modeloExtraido = extraerPrefijoProducto(row.producto);
 
         try {
             const res = await fetch('/api/productos/peticiones', {
@@ -130,7 +134,7 @@ export default function OrdenesCortadasPage() {
                 body: JSON.stringify({
                     op: row.op,
                     modelo: modeloExtraido,
-                    codigo: row.producto,              // codigo = producto
+                    codigo: String(row.producto || '').trim().replace(/^["']|["']$/g, ''),
                     nombre_secundario: row.nombre,    // nombre_secundario = nombre
                 })
             })
@@ -138,17 +142,26 @@ export default function OrdenesCortadasPage() {
             const data = await res.json()
 
             if (res.ok && data.success) {
-                setSolicitados(prev => ({ ...prev, [rowId]: true }))
-                // Actualizamos también el mapa de la BD para persistir el bloqueo sin recargar
-                setPeticionesBD(prev => ({ 
-                    ...prev, 
-                    [row.producto]: true,
-                    ...(row.op ? { [row.op]: true } : {})
-                }))
+                if (data.asignadoAutomaticamente) {
+                    const tiempoAsignado = Number(data.tiempo) || 0
+                    setOrdenesCortadas(current => current.map(orden => (
+                        orden.id === row.id || orden.producto === row.producto
+                            ? { ...orden, tiempo_base: tiempoAsignado }
+                            : orden
+                    )))
+                } else {
+                    setSolicitados(prev => ({ ...prev, [rowId]: true }))
+                    setPeticionesBD(prev => ({
+                        ...prev,
+                        [row.producto]: true,
+                        ...(row.op ? { [row.op]: true } : {})
+                    }))
+                    await cargarOrdenesCortadas()
+                }
                 setModal({
                     isOpen: true,
                     type: 'success',
-                    message: data.message || `Solicitud enviada exitosamente para el modelo "${modeloExtraido}". Se notificó a gestión de tiempos.`
+                    message: data.message || `Solicitud enviada para la familia "${modeloExtraido}".`
                 })
             } else {
                 setModal({

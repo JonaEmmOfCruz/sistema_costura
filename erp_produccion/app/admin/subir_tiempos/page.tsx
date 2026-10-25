@@ -14,6 +14,8 @@ interface PeticionTiempo {
     codigo: string;
     nombre_secundario: string;
     fecha_solicitud?: string;
+    estatus?: string;
+    tiempo_asignado?: number | string | null;
 }
 
 interface ProductoTiempo {
@@ -51,7 +53,7 @@ export default function SubirTiemposProductosPage() {
     const { data: productos, setData: setProductos, loading: loadingProductos, loadingMore, hasMore, loadMore, reload: cargarProductos } = usePaginatedApi<ProductoTiempo>('/api/productos/tiempos', 'productos')
 
     // Estado para la lista de peticiones de la BD
-    const { data: peticiones, loading: loadingPeticiones, loadingMore: loadingMorePeticiones, hasMore: hasMorePeticiones, loadMore: loadMorePeticiones, reload: cargarPeticiones } = usePaginatedApi<PeticionTiempo>('/api/productos/peticiones', 'peticiones')
+    const { data: peticiones, loading: loadingPeticiones, loadingMore: loadingMorePeticiones, hasMore: hasMorePeticiones, loadMore: loadMorePeticiones, reload: cargarPeticiones } = usePaginatedApi<PeticionTiempo>('/api/productos/peticiones?history=1', 'peticiones')
     const [peticionSeleccionada, setPeticionSeleccionada] = useState<PeticionTiempo | null>(null)
 
     // Estados para el proceso de escaneo / búsqueda automática
@@ -197,7 +199,7 @@ export default function SubirTiemposProductosPage() {
         await Promise.all([cargarProductos(), cargarPeticiones()])
     })
 
-    const peticionesPendientes = peticiones
+    const peticionesPendientes = peticiones.filter(p => String(p.estatus || '').toLowerCase() === 'pendiente')
 
     // BÚSQUEDA AUTOMÁTICA Y ANIMACIÓN AL SELECCIONAR UNA PETICIÓN
     const handleAsignarTiempoClick = async (peticion: PeticionTiempo) => {
@@ -466,9 +468,9 @@ export default function SubirTiemposProductosPage() {
                     <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
                         <Icon icon="lucide:clock" className="text-indigo-600" />
                         Peticiones de Tiempo Solicitadas
-                        {peticionesPendientes.length > 0 && (
+                        {peticiones.length > 0 && (
                             <span className="ml-2 px-2.5 py-0.5 text-xs font-bold bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-full">
-                                {peticionesPendientes.length} pendientes
+                                {peticionesPendientes.length} pendientes · {peticiones.length} en esta página
                             </span>
                         )}
                     </h2>
@@ -480,19 +482,23 @@ export default function SubirTiemposProductosPage() {
                     </button>
                 </div>
 
-                {loadingPeticiones ? <SewingLoader message="Cargando solicitudes de tiempo" compact /> : peticionesPendientes.length === 0 ? (
+                {loadingPeticiones ? <SewingLoader message="Cargando solicitudes de tiempo" compact /> : peticiones.length === 0 ? (
                     <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-gray-200">
                         <Icon icon="lucide:check-circle-2" className="text-3xl text-emerald-500 mx-auto mb-2" />
-                        <p className="text-sm font-medium text-gray-700">Sin peticiones pendientes</p>
-                        <p className="text-xs text-gray-400">Todas las solicitudes de tiempo han sido procesadas o ya cuentan con métrica registrada.</p>
+                        <p className="text-sm font-medium text-gray-700">{peticiones.length ? 'Sin peticiones pendientes' : 'Aún no hay peticiones de tiempo'}</p>
+                        <p className="text-xs text-gray-400">Las solicitudes atendidas y rechazadas se conservan en el historial paginado.</p>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {peticionesPendientes.map((p) => (
+                        {peticiones.map((p) => {
+                            const estatus = String(p.estatus || 'pendiente').toLowerCase()
+                            const pendiente = estatus === 'pendiente'
+                            const atendida = estatus === 'atendido' || estatus === 'atendida'
+                            return (
                             <div 
                                 key={p.id}
                                 className={`p-4 rounded-2xl border transition-all ${
-                                    peticionSeleccionada?.id === p.id 
+                                    peticionSeleccionada?.id === p.id
                                         ? 'border-indigo-500 bg-indigo-50/40 shadow-sm ring-2 ring-indigo-200' 
                                         : 'border-gray-200 bg-white hover:border-indigo-300'
                                 }`}
@@ -504,6 +510,12 @@ export default function SubirTiemposProductosPage() {
                                     {p.op && <span className="text-[11px] font-semibold text-gray-500">OP: {p.op}</span>}
                                 </div>
 
+                                <span className={`mb-3 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${
+                                    pendiente ? 'border-amber-200 bg-amber-50 text-amber-700' : atendida ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'
+                                }`}>
+                                    {pendiente ? 'Pendiente' : atendida ? 'Atendida' : estatus === 'rechazado' || estatus === 'rechazada' ? 'Rechazada' : p.estatus}
+                                </span>
+
                                 <div className="space-y-1 mb-4">
                                     <p className="text-xs font-bold text-gray-800 truncate" title={p.codigo}>
                                         Código: <span className="font-normal text-gray-600">{p.codigo}</span>
@@ -511,17 +523,23 @@ export default function SubirTiemposProductosPage() {
                                     <p className="text-xs font-bold text-gray-800 truncate" title={p.nombre_secundario}>
                                         Producto: <span className="font-normal text-gray-600">{p.nombre_secundario}</span>
                                     </p>
+                                    {atendida && Number(p.tiempo_asignado) > 0 && <p className="text-xs font-semibold text-emerald-700">Tiempo asignado: {p.tiempo_asignado} segundos</p>}
                                 </div>
 
-                                <button
-                                    onClick={() => handleAsignarTiempoClick(p)}
-                                    className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold rounded-xl shadow-sm transition-all flex items-center justify-center gap-1.5"
-                                >
-                                    <Icon icon="lucide:sparkles" className="text-sm" />
-                                    Asignar Tiempo
-                                </button>
+                                {pendiente ? (
+                                    <button
+                                        onClick={() => handleAsignarTiempoClick(p)}
+                                        className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold rounded-xl shadow-sm transition-all flex items-center justify-center gap-1.5"
+                                    >
+                                        <Icon icon="lucide:sparkles" className="text-sm" />
+                                        Asignar Tiempo
+                                    </button>
+                                ) : (
+                                    <p className="text-xs text-slate-500">{atendida ? 'Esta solicitud ya fue procesada.' : 'Esta solicitud ya no está pendiente.'}</p>
+                                )}
                             </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 )}
 

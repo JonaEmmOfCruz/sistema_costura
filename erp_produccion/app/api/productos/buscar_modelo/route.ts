@@ -22,7 +22,7 @@ const normalizarTexto = (valor: string | null | undefined) => (valor || '')
     .toLocaleUpperCase('es-MX')
 
 const extraerPrefijoCodigo = (codigo: string | null | undefined) =>
-    normalizarTexto(codigo).slice(0, 7)
+    normalizarTexto(codigo).replace(/^["']|["']$/g, '').trim().slice(0, 7)
 
 export async function GET(request: Request) {
     try {
@@ -31,9 +31,10 @@ export async function GET(request: Request) {
         const nombre = searchParams.get('nombre') || ''
         const modelo = searchParams.get('modelo') || ''
         const nombreBuscado = normalizarTexto(nombre)
-        const codigoBuscado = normalizarTexto(codigo)
-        const prefijoCodigoBuscado = extraerPrefijoCodigo(codigo)
-        const familiaBuscada = normalizarTexto(modelo)
+        const codigoBuscado = normalizarTexto(codigo).replace(/^["']|["']$/g, '').trim()
+        const prefijoCodigoBuscado = extraerPrefijoCodigo(codigoBuscado)
+        const familiaModelo = normalizarTexto(modelo)
+        const familiaBuscada = familiaModelo.includes('-') ? familiaModelo.split('-')[1] : familiaModelo
 
         if (!codigoBuscado && !nombreBuscado && !familiaBuscada) {
             return NextResponse.json({ success: false, message: 'Se requiere código, nombre o modelo del producto' }, { status: 400 })
@@ -63,6 +64,23 @@ export async function GET(request: Request) {
             return rows[0]
         }
 
+        const productoPorCodigo = codigoBuscado
+            ? await buscarProducto(
+                `(cod_proceso LIKE CONCAT(?, '%')
+                  OR cod_proceso LIKE CONCAT('"', ?, '%')
+                  OR cod_proceso LIKE CONCAT(CHAR(39), ?, '%'))`,
+                [prefijoCodigoBuscado || codigoBuscado, prefijoCodigoBuscado || codigoBuscado, prefijoCodigoBuscado || codigoBuscado]
+            )
+            : undefined
+
+        if (productoPorCodigo) {
+            return NextResponse.json({
+                success: true,
+                coincidencia: productoPorCodigo,
+                criterio: 'codigo'
+            })
+        }
+
         const productoPorNombre = nombreBuscado
             ? await buscarProducto('UPPER(TRIM(descripcion)) = ?', [nombreBuscado])
             : undefined
@@ -72,18 +90,6 @@ export async function GET(request: Request) {
                 success: true,
                 coincidencia: productoPorNombre,
                 criterio: 'nombre'
-            })
-        }
-
-        const productoPorCodigo = codigoBuscado
-            ? await buscarProducto('cod_proceso LIKE CONCAT(?, \'%\')', [prefijoCodigoBuscado || codigoBuscado])
-            : undefined
-
-        if (productoPorCodigo) {
-            return NextResponse.json({
-                success: true,
-                coincidencia: productoPorCodigo,
-                criterio: 'codigo'
             })
         }
 
