@@ -21,10 +21,8 @@ const normalizarTexto = (valor: string | null | undefined) => (valor || '')
     .replace(/\s+/g, ' ')
     .toLocaleUpperCase('es-MX')
 
-const extraerPrefijoCodigo = (codigo: string | null | undefined) => {
-    const segmentos = (codigo || '').split('-').map(segmento => segmento.trim()).filter(Boolean)
-    return normalizarTexto(segmentos.slice(0, 2).join('-'))
-}
+const extraerPrefijoCodigo = (codigo: string | null | undefined) =>
+    normalizarTexto(codigo).slice(0, 7)
 
 export async function GET(request: Request) {
     try {
@@ -55,7 +53,9 @@ export async function GET(request: Request) {
               AND t_costura > 0
               AND costura IS NOT NULL
               AND TRIM(CAST(costura AS CHAR)) <> ''
-            ORDER BY id DESC
+            ORDER BY
+                CASE WHEN CHAR_LENGTH(TRIM(cod_proceso)) = 7 THEN 0 ELSE 1 END,
+                id DESC
         `)
 
         const productoPorNombre = nombreBuscado

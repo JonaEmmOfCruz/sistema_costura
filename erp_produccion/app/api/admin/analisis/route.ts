@@ -3,20 +3,12 @@ import { cookies } from "next/headers";
 import { RowDataPacket } from "mysql2";
 import jwt from "jsonwebtoken";
 import { pool } from "@/lib/db";
+import { tiempoCosturaPorPrefijoSql } from "@/lib/productosTiempos";
 
 export const dynamic = "force-dynamic";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
-const PRODUCT_TIME_JOIN = `LEFT JOIN (
-    SELECT cod_proceso, MAX(
-        CASE
-            WHEN t_costura IS NOT NULL THEN CAST(t_costura AS DECIMAL(12, 2))
-            ELSE NULL
-        END
-    ) AS tiempo_segundos
-    FROM productos_tiempos
-    GROUP BY cod_proceso
-) AS pt ON pt.cod_proceso = t.producto`;
+const TIEMPO_COSTURA_SEGUNDOS = tiempoCosturaPorPrefijoSql("t");
 
 interface JwtAdminPayload extends jwt.JwtPayload {
     jti?: string;
@@ -131,9 +123,8 @@ export async function GET(request: Request) {
                     COUNT(*) AS ordenes_terminadas,
                     COALESCE(SUM(t.cantidad_asignada), 0) AS piezas,
                     COALESCE(SUM(COALESCE(t.tiempo_segundos, TIMESTAMPDIFF(SECOND, t.fecha_inicio, t.fecha_fin))), 0) AS segundos_trabajados,
-                    COALESCE(SUM(CASE WHEN pt.tiempo_segundos IS NOT NULL THEN pt.tiempo_segundos * t.cantidad_asignada ELSE 0 END), 0) AS segundos_sugeridos
+                    COALESCE(SUM(COALESCE(${TIEMPO_COSTURA_SEGUNDOS}, 0) * t.cantidad_asignada), 0) AS segundos_sugeridos
                 FROM operador_tiempos_costura AS t
-                ${PRODUCT_TIME_JOIN}
                 WHERE t.fecha_fin IS NOT NULL
                   AND COALESCE(t.tiempo_segundos, TIMESTAMPDIFF(SECOND, t.fecha_inicio, t.fecha_fin)) > 0
                   ${sewingPeriodSql}
@@ -144,10 +135,9 @@ export async function GET(request: Request) {
                     COUNT(*) AS ordenes_terminadas,
                     COALESCE(SUM(t.cantidad_asignada), 0) AS piezas,
                     COALESCE(SUM(COALESCE(t.tiempo_segundos, TIMESTAMPDIFF(SECOND, t.fecha_inicio, t.fecha_fin))), 0) AS segundos_trabajados,
-                    COALESCE(SUM(CASE WHEN pt.tiempo_segundos IS NOT NULL THEN pt.tiempo_segundos * t.cantidad_asignada ELSE 0 END), 0) AS segundos_sugeridos
+                    COALESCE(SUM(COALESCE(${TIEMPO_COSTURA_SEGUNDOS}, 0) * t.cantidad_asignada), 0) AS segundos_sugeridos
                 FROM operador_tiempos_costura AS t
                 LEFT JOIN usuarios AS u ON u.id = t.id_operador
-                ${PRODUCT_TIME_JOIN}
                 WHERE t.fecha_fin IS NOT NULL
                   AND COALESCE(t.tiempo_segundos, TIMESTAMPDIFF(SECOND, t.fecha_inicio, t.fecha_fin)) > 0
                   ${sewingPeriodSql}

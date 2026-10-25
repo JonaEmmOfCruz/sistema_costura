@@ -1,6 +1,7 @@
 import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { RowDataPacket } from "mysql2";
+import { tiempoCosturaPorPrefijoSql } from "@/lib/productosTiempos";
 
 // Evita que Next.js guarde en caché las respuestas GET
 export const dynamic = 'force-dynamic';
@@ -27,10 +28,9 @@ export async function GET() {
                     ELSE SUM(COALESCE(t.tiempo_segundos, TIMESTAMPDIFF(SECOND, t.fecha_inicio, t.fecha_fin)))
                 END AS tiempo_segundos,
                 MAX(t.creado_en) AS creado_en,
-                MAX(pt.t_costura) * MAX(t.cantidad_asignada) AS tiempo_sugerido_segundos
+                MAX(${tiempoCosturaPorPrefijoSql('t')}) * MAX(t.cantidad_asignada) AS tiempo_sugerido_segundos
             FROM operador_tiempos_costura t
             LEFT JOIN usuarios u ON t.id_operador = u.id
-            LEFT JOIN productos_tiempos pt ON t.producto = pt.cod_proceso
             GROUP BY t.id_operador, t.op, t.producto
             ORDER BY MAX(t.id) DESC
         `);

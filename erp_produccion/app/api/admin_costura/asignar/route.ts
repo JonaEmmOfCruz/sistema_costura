@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { tiempoCosturaPorPrefijoSql } from '@/lib/productosTiempos'
 export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
     try {
@@ -17,9 +18,8 @@ export async function POST(request: Request) {
 
             // 1. Obtener la orden y el tiempo que toma cada pieza (cruce con productos_tiempos)
             const [ordenRows]: any = await connection.query(
-                `SELECT c.*, pt.t_costura AS tiempo_base
+                `SELECT c.*, ${tiempoCosturaPorPrefijoSql('c')} AS tiempo_base
                  FROM admin_costura_cortes c
-                 LEFT JOIN productos_tiempos pt ON c.producto = pt.cod_proceso
                  WHERE (c.orden_id = ? OR c.id = ?) 
                  AND c.estatus IN ('cortada', 'asignacion parcial')`,
                 [orden_id, orden_id]
@@ -55,13 +55,11 @@ export async function POST(request: Request) {
                 SELECT 
                     u.id AS usuario_id, 
                     u.nombre,
-                    COALESCE(SUM(a.cantidad_asignada * IFNULL(pt.t_costura, 0)), 0) AS segundos_ocupados
+                    COALESCE(SUM(a.cantidad_asignada * IFNULL(${tiempoCosturaPorPrefijoSql('a')}, 0)), 0) AS segundos_ocupados
                 FROM usuarios u
                 JOIN operadores_disponibilidad d ON u.id = d.usuario_id
                 LEFT JOIN admin_costura_asignaciones a 
                     ON a.id_operador = u.id AND a.estatus NOT IN ('completado', 'terminado', 'entregado')
-                LEFT JOIN productos_tiempos pt 
-                    ON a.producto = pt.cod_proceso
                 WHERE u.tipo_usuario = 'operador' 
                   AND d.disponible_hasta > NOW()
                 GROUP BY u.id, u.nombre

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 import { RowDataPacket } from 'mysql2'
+import { tiempoCosturaPorPrefijoSql } from '@/lib/productosTiempos'
 
 export const dynamic = 'force-dynamic';
 
@@ -19,14 +20,13 @@ export async function GET(request: Request) {
                 m.ruta AS manual_ruta,
                 m.tipo AS manual_tipo,
                 m.nombre_original AS manual_nombre,
-                pt.t_costura AS tiempo_base,
-                COALESCE(pt.t_costura, 0) * a.cantidad_asignada AS tiempo_sugerido_segundos,
+                ${tiempoCosturaPorPrefijoSql('a')} AS tiempo_base,
+                COALESCE(${tiempoCosturaPorPrefijoSql('a')}, 0) * a.cantidad_asignada AS tiempo_sugerido_segundos,
                 COALESCE(t.segundos_acumulados, 0) AS segundos_acumulados,
                 CAST(UNIX_TIMESTAMP(t.inicio_sesion) * 1000 AS UNSIGNED) AS inicio_sesion_ms,
                 CAST(UNIX_TIMESTAMP(NOW(3)) * 1000 AS UNSIGNED) AS server_now_ms
             FROM admin_costura_asignaciones a
             LEFT JOIN manuales_produccion m ON a.producto LIKE CONCAT(SUBSTRING_INDEX(m.nombre_original, '.', 1), '%')
-            LEFT JOIN productos_tiempos pt ON a.producto = pt.cod_proceso
             LEFT JOIN (
                 SELECT
                     id_asignacion,
