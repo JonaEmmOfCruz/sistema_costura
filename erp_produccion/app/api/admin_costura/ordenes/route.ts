@@ -2,10 +2,17 @@ import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { RowDataPacket } from "mysql2";
 import { tiempoCosturaPorPrefijoSql } from "@/lib/productosTiempos";
+import { pageMetadata, pageRows, readPageParams } from "@/lib/pagination";
 export const dynamic = 'force-dynamic';
-export async function GET() {
+export async function GET(request: Request) {
     try {
-        const [rows] = await pool.query<RowDataPacket[]>(`
+        const { page, pageSize, offset } = readPageParams(request)
+        const dataset = new URL(request.url).searchParams.get('dataset')
+        let rows: RowDataPacket[] = []
+        let enEspera: RowDataPacket[] = []
+
+        if (dataset !== 'espera') {
+            ;[rows] = await pool.query<RowDataPacket[]>(`
             SELECT 
                 o.*, 
                 c.estatus AS estado,
@@ -15,10 +22,13 @@ export async function GET() {
             LEFT JOIN admin_costura_ordenes_espera e ON e.orden_id = o.id
             WHERE e.orden_id IS NULL
               AND (c.estatus IS NULL OR c.estatus = 'corte en proceso')
-            ORDER BY o.id ASC
-        `)
+            ORDER BY CASE WHEN c.estatus = 'corte en proceso' THEN 0 ELSE 1 END, o.id ASC
+            LIMIT ? OFFSET ?
+            `, [pageSize + 1, offset])
+        }
 
-        const [enEspera] = await pool.query<RowDataPacket[]>(`
+        if (dataset !== 'ordenes') {
+            ;[enEspera] = await pool.query<RowDataPacket[]>(`
             SELECT
                 o.*,
                 e.motivo AS motivo_espera,
@@ -27,12 +37,22 @@ export async function GET() {
             FROM admin_costura_ordenes_espera e
             INNER JOIN admin_costura_ordenes o ON o.id = e.orden_id
             ORDER BY e.fecha_espera ASC
-        `)
+            LIMIT ? OFFSET ?
+            `, [pageSize + 1, offset])
+        }
 
         return NextResponse.json({
             success: true,
-            ordenes: rows,
-            en_espera: enEspera
+            ordenes: pageRows(rows, pageSize),
+            en_espera: pageRows(enEspera, pageSize),
+            pagination: dataset === 'ordenes'
+                ? pageMetadata(page, pageSize, rows.length)
+                : dataset === 'espera'
+                    ? pageMetadata(page, pageSize, enEspera.length)
+                    : {
+                        ordenes: pageMetadata(page, pageSize, rows.length),
+                        en_espera: pageMetadata(page, pageSize, enEspera.length),
+                    }
         })
     } catch (error) {
         console.error('Error al obtener las ordenes de produccion', error)

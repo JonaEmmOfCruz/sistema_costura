@@ -25,6 +25,76 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+.sewing-loader {
+  min-height: 55vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 2rem 1rem;
+  color: #334155;
+  text-align: center;
+}
+
+.sewing-loader-compact {
+  min-height: 12rem;
+}
+
+.sewing-loader-art {
+  position: relative;
+  width: 13rem;
+  height: 6.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.sewing-loader-icon {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  color: #475569;
+  filter: drop-shadow(0 3px 4px rgb(15 23 42 / 10%));
+}
+
+.sewing-loader-icon svg {
+  width: 2rem;
+  height: 2rem;
+}
+
+.sewing-loader-chair { left: 0.5rem; bottom: 1.35rem; color: #64748b; animation: loader-rock 1.8s ease-in-out infinite; }
+.sewing-loader-machine { left: 4rem; top: 0.1rem; color: #2563eb; animation: loader-bob 1.5s ease-in-out infinite; }
+.sewing-loader-thread { right: 3.8rem; top: 0.35rem; color: #c0841a; animation: loader-spool 2.4s ease-in-out infinite; }
+.sewing-loader-needle { right: 1rem; bottom: 1.15rem; color: #64748b; animation: loader-needle 1.7s ease-in-out infinite; }
+.sewing-loader-fabric { left: 5.2rem; bottom: 0.65rem; color: #0f766e; animation: loader-fabric 1.9s ease-in-out infinite; }
+
+.sewing-loader-stitch {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 1.2rem;
+  overflow: visible;
+}
+
+.sewing-loader-stitch path {
+  stroke: #94a3b8;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: 8 6;
+  animation: loader-stitch 1.3s linear infinite;
+}
+
+.sewing-loader-message { margin: 0; font-size: 0.9rem; font-weight: 600; letter-spacing: 0.01em; }
+.sewing-loader-caption { color: #94a3b8; font-size: 0.72rem; }
+
+@keyframes loader-rock { 0%, 100% { transform: rotate(-5deg) translateY(0); } 50% { transform: rotate(5deg) translateY(-4px); } }
+@keyframes loader-bob { 0%, 100% { transform: translateY(1px); } 50% { transform: translateY(-6px); } }
+@keyframes loader-spool { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(12deg); } }
+@keyframes loader-needle { 0%, 100% { transform: rotate(-25deg) translateY(2px); } 50% { transform: rotate(20deg) translateY(-3px); } }
+@keyframes loader-fabric { 0%, 100% { transform: translateY(2px) scaleX(0.95); } 50% { transform: translateY(-3px) scaleX(1.04); } }
+@keyframes loader-stitch { to { stroke-dashoffset: -28; } }
+
 @media (pointer: coarse) {
   button,
   a,
@@ -36,7 +106,7 @@ body {
   }
 }
 
-@media (max-width: 1024px), (prefers-reduced-motion: reduce) {
+@media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {

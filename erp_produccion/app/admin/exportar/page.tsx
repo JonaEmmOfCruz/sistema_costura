@@ -2,6 +2,7 @@
 
 import { Icon } from "@iconify/react"
 import { useEffect, useState } from "react"
+import SewingLoader from "@/components/SewingLoader"
 
 interface ExportTable {
     name: string
@@ -88,9 +89,11 @@ export default function AdminDataExportPage() {
     const [tables, setTables] = useState<ExportTable[]>([])
     const [generatedAt, setGeneratedAt] = useState<string | null>(null)
     const [errorMessage, setErrorMessage] = useState('')
+    const [loadingSummary, setLoadingSummary] = useState(true)
 
     useEffect(() => {
         const controller = new AbortController()
+        setLoadingSummary(true)
         const params = new URLSearchParams({ resumen: '1' })
         if (exportMode === 'fechas' && dateFrom && dateTo) {
             params.set('desde', dateFrom)
@@ -114,6 +117,9 @@ export default function AdminDataExportPage() {
                 if (error instanceof Error && error.name === 'AbortError') return
                 console.error('Error al cargar el resumen de exportación:', error)
                 setErrorMessage(error instanceof Error ? error.message : 'No se pudo cargar el resumen de las tablas')
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setLoadingSummary(false)
             })
 
         return () => controller.abort()
@@ -410,7 +416,9 @@ export default function AdminDataExportPage() {
                 </div>
             )}
 
-            {tables.length > 0 && (
+            {loadingSummary ? (
+                <SewingLoader message="Cargando información de la base de datos" compact />
+            ) : tables.length > 0 && (
                 <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div className="flex flex-col gap-1 border-b border-slate-100 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>

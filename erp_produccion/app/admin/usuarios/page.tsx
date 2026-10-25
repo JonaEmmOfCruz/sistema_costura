@@ -1,41 +1,21 @@
 'use client'
-import { useEffect, useState } from "react"
+import { useState } from "react"
 
 import UserRegistrationForm from "@/components/UserRegistrationForm"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
-import useLatestRequest from "@/lib/useLatestRequest"
+import SewingLoader from "@/components/SewingLoader"
+import usePaginatedApi from "@/lib/usePaginatedApi"
 
 export default function AdminRegisterUser() {
-    const [loading, setLoading] = useState(true)
-    const [user, setUsers] = useState<any[]>([])
+    const { data: user, loading, loadingMore, hasMore, loadMore, reload: fetchUsers } = usePaginatedApi<any>('/api/usuarios', 'user')
     
     // Estado para editar usuario
     const [selectedUser, setSelectedUser] = useState<any | null>(null)
     const [isEditModalOpen, setIsEditModalOpen] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
-    const isLatestRequest = useLatestRequest()
 
     // Cargar usuarios
-    const fetchUsers = () => {
-        const esUltimaSolicitud = isLatestRequest()
-        setLoading(true)
-        return fetch('/api/usuarios', { cache: 'no-store' })
-            .then(res => res.json())
-            .then(data => {
-                if (esUltimaSolicitud() && data.success) setUsers(data.user)
-                if (esUltimaSolicitud()) setLoading(false)
-            })
-            .catch(err => {
-                console.error("Error al cargar usuarios:", err)
-                if (esUltimaSolicitud()) setLoading(false)
-            })
-    }
-
-    useEffect(() => {
-        fetchUsers()
-    }, [])
-
     useRealtimeRefresh(fetchUsers)
 
     // Handler para eliminar un usuario
@@ -147,6 +127,8 @@ export default function AdminRegisterUser() {
         }
     ]
 
+    if (loading) return <SewingLoader message="Cargando usuarios" compact />
+
     return (
         <div className="space-y-6">
             <UserRegistrationForm />
@@ -156,6 +138,9 @@ export default function AdminRegisterUser() {
                 columns={columns}
                 searchField="nombre"
                 searchPlaceholder="Buscar por nombre..."
+                hasMore={hasMore}
+                loadingMore={loadingMore}
+                onLoadMore={loadMore}
             />
 
             {/* Modal de edición */}

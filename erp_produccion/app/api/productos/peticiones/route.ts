@@ -1,21 +1,35 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { pageMetadata, pageRows, readPageParams } from '@/lib/pagination'
 
 // GET: Obtener todas las peticiones pendientes registradas
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { page, pageSize, offset } = readPageParams(request)
         const [peticiones]: any = await pool.query(
-            `SELECT id, op, modelo, codigo, nombre_secundario, estatus, fecha_solicitud 
-             FROM peticiones_tiempos 
-             WHERE LOWER(estatus) = 'pendiente' 
-             ORDER BY id DESC`
+            `SELECT p.id, p.op, p.modelo, p.codigo, p.nombre_secundario, p.estatus, p.fecha_solicitud
+             FROM peticiones_tiempos p
+             WHERE LOWER(p.estatus) = 'pendiente'
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM productos_tiempos pt
+                   WHERE pt.t_costura > 0
+                     AND (
+                         pt.cod_proceso LIKE CONCAT(LEFT(TRIM(p.codigo), 7), '%')
+                         OR LOWER(TRIM(pt.descripcion)) = LOWER(TRIM(p.nombre_secundario))
+                     )
+               )
+             ORDER BY p.id DESC
+             LIMIT ? OFFSET ?`,
+            [pageSize + 1, offset]
         )
 
         return NextResponse.json({ 
             success: true, 
-            peticiones: Array.isArray(peticiones) ? peticiones : [] 
+            peticiones: Array.isArray(peticiones) ? pageRows(peticiones, pageSize) : [],
+            pagination: pageMetadata(page, pageSize, peticiones.length)
         })
     } catch (error) {
         console.error('Error al consultar peticiones pendientes:', error)

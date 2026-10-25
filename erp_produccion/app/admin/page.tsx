@@ -1,15 +1,12 @@
 'use client'
 import dynamic from "next/dynamic"
 import { useEffect, useState } from "react"
+import SewingLoader from "@/components/SewingLoader"
 
 const ProductionAnalyticsDashboard = dynamic(
     () => import("@/components/ProductionAnalyticsDashboard"),
     {
-        loading: () => (
-            <div className="mt-8 flex h-96 items-center justify-center rounded-2xl border border-slate-200 bg-white text-sm text-slate-500">
-                Cargando análisis de producción...
-            </div>
-        ),
+        loading: () => <SewingLoader message="Cargando análisis de producción" compact />,
     },
 )
 
@@ -38,11 +35,7 @@ export default function AdminDashboard() {
         fetchUserData()
     }, [])
 
-    if (loading) return (
-        <div className="flex h-screen items-center justify-center bg-gray-50 text-gray-500">
-            <p>Cargando panel...</p>
-        </div>
-    )
+    if (loading) return <SewingLoader message="Cargando panel de administración" />
 
     if (!user) return null
 

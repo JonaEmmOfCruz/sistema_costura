@@ -1,19 +1,23 @@
 import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { RowDataPacket, ResultSetHeader } from "mysql2";
+import { pageMetadata, pageRows, readPageParams } from "@/lib/pagination";
 
 // GET: Consultar usuarios
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { page, pageSize, offset } = readPageParams(request)
         const [rows] = await pool.query<RowDataPacket[]>(
-            'SELECT * FROM usuarios ORDER BY id ASC'
+            'SELECT * FROM usuarios ORDER BY id ASC LIMIT ? OFFSET ?',
+            [pageSize + 1, offset]
         );
 
         return NextResponse.json({
             success: true,
-            user: rows
+            user: pageRows(rows, pageSize),
+            pagination: pageMetadata(page, pageSize, rows.length)
         });
     } catch (error) {
         console.error('Error al obtener usuarios:', error);

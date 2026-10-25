@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react"
 import ReusableTable from "@/components/ReusableTable"
+import SewingLoader from "@/components/SewingLoader"
+import usePaginatedApi from "@/lib/usePaginatedApi"
 import { Icon } from "@iconify/react"
 
 // Lista de prefijos prioritarios
@@ -31,23 +33,16 @@ interface ModalState {
 }
 
 export default function OrdenesCortadasPage() {
-    const [loading, setLoading] = useState(true)
-    const [ordenesCortadas, setOrdenesCortadas] = useState<any[]>([])
+    const { data: ordenesCortadas, loading, loadingMore, hasMore, loadMore, reload: recargarCortes } = usePaginatedApi<any>('/api/admin_costura/cortadas', 'ordenes', false)
     const [modal, setModal] = useState<ModalState>({ isOpen: false, type: 'confirm', message: '' })
 
     const cargarOrdenesCortadas = async () => {
         try {
             await fetch('/api/admin_costura/auto_asignar', { method: 'POST' })
 
-            const res = await fetch('/api/admin_costura/cortadas')
-            const data = await res.json()
-            if (data.success) {
-                setOrdenesCortadas(data.ordenes)
-            }
+            await recargarCortes()
         } catch (error) {
             console.error("Error al cargar órdenes cortadas:", error)
-        } finally {
-            setLoading(false)
         }
     }
 
@@ -191,7 +186,7 @@ export default function OrdenesCortadasPage() {
     ]
 
     if (loading) {
-        return <div className="text-center py-10 text-gray-400 text-sm">Cargando historial de cortes...</div>
+        return <SewingLoader message="Cargando órdenes cortadas" compact />
     }
 
     return (
@@ -209,6 +204,9 @@ export default function OrdenesCortadasPage() {
                     columns={columns}
                     searchField='op'
                     searchPlaceholder="Buscar por op..."
+                    hasMore={hasMore}
+                    loadingMore={loadingMore}
+                    onLoadMore={loadMore}
                 />
             </div>
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
+import { pageMetadata, pageRows, readPageParams } from '@/lib/pagination'
 
 export const dynamic = 'force-dynamic';
 
@@ -7,6 +8,7 @@ export async function GET(request: Request) {
     try {
         const { searchParams } = new URL(request.url)
         const op = searchParams.get('op') || searchParams.get('codigo')
+        const { page, pageSize, offset } = readPageParams(request)
 
         let query = `SELECT * FROM manuales_produccion`
         const queryParams: any[] = []
@@ -21,12 +23,14 @@ export async function GET(request: Request) {
         }
 
         query += ` ORDER BY id DESC`
+        if (!op) query += ` LIMIT ? OFFSET ?`
 
-        const [manuales]: any = await pool.query(query, queryParams)
+        const [manuales]: any = await pool.query(query, op ? queryParams : [...queryParams, pageSize + 1, offset])
 
         return NextResponse.json({ 
             success: true, 
-            manuales 
+            manuales: op ? manuales : pageRows(manuales, pageSize),
+            ...(!op ? { pagination: pageMetadata(page, pageSize, manuales.length) } : {})
         })
     } catch (error) {
         console.error('Error al obtener manuales:', error)

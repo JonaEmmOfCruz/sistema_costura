@@ -1,14 +1,16 @@
 'use client'
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
+import usePaginatedApi from "@/lib/usePaginatedApi"
+import SewingLoader from "@/components/SewingLoader"
 
 export default function SubirTiemposProductosPage() {
     const [file, setFile] = useState<File | null>(null)
     const [loading, setLoading] = useState(false)
     const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-    const [productos, setProductos] = useState<any[]>([])
+    const { data: productos, loading: loadingProductos, loadingMore, hasMore, loadMore, reload: cargarProductos } = usePaginatedApi<any>('/api/productos/tiempos', 'productos')
 
     // Estados para el formulario de gestión (Agregar / Modificar / Eliminar)
     const [modo, setModo] = useState<'agregar' | 'modificar' | 'eliminar'>('agregar')
@@ -79,21 +81,6 @@ export default function SubirTiemposProductosPage() {
             setLoading(false)
         }
     }
-
-    const cargarProductos = () => {
-        setLoading(true)
-        fetch('/api/productos/tiempos')
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) setProductos(data.productos)
-                setLoading(false)
-            })
-            .catch(() => setLoading(false))
-    }
-
-    useEffect(() => {
-        cargarProductos()
-    }, [])
 
     // Manejo del formulario CRUD manual
     const handleManualSubmit = async (e: React.FormEvent) => {
@@ -557,12 +544,17 @@ export default function SubirTiemposProductosPage() {
 
             {/* SECCIÓN 3: TABLA DE DATOS */}
             <div>
-                <ReusableTable
-                    data={productosFiltrados}
-                    columns={columns}
-                    searchField='descripcion'
-                    searchPlaceholder="Buscar por código o descripción..."
-                />
+                {loadingProductos ? <SewingLoader message="Cargando catálogo de tiempos" compact /> : (
+                    <ReusableTable
+                        data={productosFiltrados}
+                        columns={columns}
+                        searchField='descripcion'
+                        searchPlaceholder="Buscar por código o descripción..."
+                        hasMore={hasMore}
+                        loadingMore={loadingMore}
+                        onLoadMore={loadMore}
+                    />
+                )}
             </div>
         </div>
     )

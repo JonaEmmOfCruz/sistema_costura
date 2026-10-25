@@ -1,36 +1,14 @@
 'use client'
-import { useEffect, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
-import useLatestRequest from "@/lib/useLatestRequest"
+import SewingLoader from "@/components/SewingLoader"
+import usePaginatedApi from "@/lib/usePaginatedApi"
 
 export default function AdminCosturaPapeleraPage() {
-    const [loading, setLoading] = useState(false)
-    const [ordenes, setOrdenes] = useState<any[]>([])
-    const isLatestRequest = useLatestRequest()
+    const { data: ordenes, loading, loadingMore, hasMore, loadMore, reload: cargarOrdenesPapelera } = usePaginatedApi<any>('/api/admin_costura/papelera', 'ordenes')
 
     // Cargar órdenes desde la papelera[cite: 10, 11]
-    const cargarOrdenesPapelera = async () => {
-        const esUltimaSolicitud = isLatestRequest()
-        setLoading(true)
-        try {
-            const res = await fetch('/api/admin_costura/papelera', { cache: 'no-store' })
-            const data = await res.json()
-            if (esUltimaSolicitud() && data.success) {
-                setOrdenes(data.ordenes)
-            }
-        } catch (error) {
-            console.error("Error al cargar papelera:", error)
-        } finally {
-            if (esUltimaSolicitud()) setLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        cargarOrdenesPapelera()
-    }, [])
-
     useRealtimeRefresh(cargarOrdenesPapelera)
 
     // Función para recuperar la orden y regresarla a admin_costura_ordenes
@@ -79,7 +57,7 @@ export default function AdminCosturaPapeleraPage() {
         {header: 'Eliminado el', accessorKey: (row: any) => row.eliminado_en ? new Date(row.eliminado_en).toLocaleDateString() : '-'},
     ]
 
-    if (loading) return <div className="text-center py-10 text-gray-400 text-sm">Cargando papelera...</div>
+    if (loading) return <SewingLoader message="Cargando papelera" compact />
 
     return (
         <div className="mx-auto space-y-6">
@@ -91,7 +69,7 @@ export default function AdminCosturaPapeleraPage() {
             </div>
 
             <div>
-                <ReusableTable data={ordenes} columns={columns} searchField='op' searchPlaceholder="Buscar por op..."/>
+                <ReusableTable data={ordenes} columns={columns} searchField='op' searchPlaceholder="Buscar por op..." hasMore={hasMore} loadingMore={loadingMore} onLoadMore={loadMore}/>
             </div>
         </div>
     )

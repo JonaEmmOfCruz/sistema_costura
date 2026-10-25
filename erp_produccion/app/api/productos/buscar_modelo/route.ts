@@ -39,30 +39,32 @@ export async function GET(request: Request) {
             return NextResponse.json({ success: false, message: 'Se requiere código, nombre o modelo del producto' }, { status: 400 })
         }
 
-        const [productos] = await pool.query<ProductoTiempoRow[]>(`
-            SELECT
-                NULL AS id,
-                NULL AS modelo,
-                NULL AS nombre,
-                cod_proceso AS codigo,
-                descripcion AS nombre_secundario,
-                costura,
-                t_costura
-            FROM productos_tiempos
-            WHERE t_costura IS NOT NULL
-              AND t_costura > 0
-              AND costura IS NOT NULL
-              AND TRIM(CAST(costura AS CHAR)) <> ''
-            ORDER BY
-                CASE WHEN CHAR_LENGTH(TRIM(cod_proceso)) = 7 THEN 0 ELSE 1 END,
-                id DESC
-        `)
+        const buscarProducto = async (condicion: string, parametros: unknown[]) => {
+            const [rows] = await pool.query<ProductoTiempoRow[]>(`
+                SELECT
+                    id,
+                    NULL AS modelo,
+                    NULL AS nombre,
+                    cod_proceso AS codigo,
+                    descripcion AS nombre_secundario,
+                    costura,
+                    t_costura
+                FROM productos_tiempos
+                WHERE t_costura IS NOT NULL
+                  AND t_costura > 0
+                  AND costura IS NOT NULL
+                  AND TRIM(CAST(costura AS CHAR)) <> ''
+                  AND ${condicion}
+                ORDER BY
+                    CASE WHEN CHAR_LENGTH(TRIM(cod_proceso)) = 7 THEN 0 ELSE 1 END,
+                    id DESC
+                LIMIT 1
+            `, parametros)
+            return rows[0]
+        }
 
         const productoPorNombre = nombreBuscado
-            ? productos.find(producto =>
-                normalizarTexto(producto.nombre_secundario) === nombreBuscado ||
-                normalizarTexto(producto.nombre) === nombreBuscado
-            )
+            ? await buscarProducto('UPPER(TRIM(descripcion)) = ?', [nombreBuscado])
             : undefined
 
         if (productoPorNombre) {
@@ -74,9 +76,7 @@ export async function GET(request: Request) {
         }
 
         const productoPorCodigo = codigoBuscado
-            ? productos.find(producto => prefijoCodigoBuscado
-                ? extraerPrefijoCodigo(producto.codigo) === prefijoCodigoBuscado
-                : normalizarTexto(producto.codigo) === codigoBuscado)
+            ? await buscarProducto('cod_proceso LIKE CONCAT(?, \'%\')', [prefijoCodigoBuscado || codigoBuscado])
             : undefined
 
         if (productoPorCodigo) {
@@ -88,10 +88,7 @@ export async function GET(request: Request) {
         }
 
         const productoPorFamilia = familiaBuscada
-            ? productos.find(producto =>
-                normalizarTexto(producto.modelo) === familiaBuscada ||
-                normalizarTexto((producto.codigo || '').split('-')[1]) === familiaBuscada
-            )
+            ? await buscarProducto("SUBSTRING_INDEX(SUBSTRING_INDEX(cod_proceso, '-', 2), '-', -1) = ?", [familiaBuscada])
             : undefined
 
         if (productoPorFamilia) {

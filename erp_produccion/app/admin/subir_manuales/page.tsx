@@ -1,17 +1,17 @@
 'use client'
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
-import useLatestRequest from "@/lib/useLatestRequest"
+import SewingLoader from "@/components/SewingLoader"
+import usePaginatedApi from "@/lib/usePaginatedApi"
 
 export default function SubirManualesPage() {
     const [file, setFile] = useState<File | null>(null)
     const [loading, setLoading] = useState(false)
     const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-    const [manuales, setManuales] = useState([])
-    const isLatestRequest = useLatestRequest()
+    const { data: manuales, loading: loadingManuales, loadingMore, hasMore, loadMore, reload: cargarManuales } = usePaginatedApi<any>('/api/manuales', 'manuales')
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -70,25 +70,6 @@ export default function SubirManualesPage() {
             setLoading(false)
         }
     }
-
-    const cargarManuales = () => {
-        const esUltimaSolicitud = isLatestRequest()
-        setLoading(true)
-        fetch('/api/manuales', { cache: 'no-store' })
-            .then(res => res.json())
-            .then(data => {
-                if (esUltimaSolicitud() && data.success) setManuales(data.manuales)
-                if (esUltimaSolicitud()) setLoading(false)
-            })
-            .catch((error) => {
-                console.error("Error al cargar manuales:", error)
-                if (esUltimaSolicitud()) setLoading(false)
-            })
-    }
-
-    useEffect(() => {
-        cargarManuales()
-    }, [])
 
     useRealtimeRefresh(cargarManuales)
 
@@ -194,7 +175,7 @@ export default function SubirManualesPage() {
             </form>
 
             <div>
-                <ReusableTable data={manuales} columns={columns} searchField='codigo_relacion' searchPlaceholder="Buscar por código de relación..."/>
+                {loadingManuales ? <SewingLoader message="Cargando manuales" compact /> : <ReusableTable data={manuales} columns={columns} searchField='codigo_relacion' searchPlaceholder="Buscar por código de relación..." hasMore={hasMore} loadingMore={loadingMore} onLoadMore={loadMore}/>}
             </div>
         </div>
     )

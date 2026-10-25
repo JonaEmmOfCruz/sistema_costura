@@ -3,7 +3,8 @@ import { useEffect, useState } from "react"
 import ReusableTable from "@/components/ReusableTable"
 import { Icon } from "@iconify/react"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
-import useLatestRequest from "@/lib/useLatestRequest"
+import SewingLoader from "@/components/SewingLoader"
+import usePaginatedApi from "@/lib/usePaginatedApi"
 
 // Lista de prefijos prioritarios
 const PREFIJOS_PRIORITARIOS = [
@@ -32,8 +33,8 @@ interface ModalState {
 }
 
 export default function OrdenesCortadasPage() {
-    const [loading, setLoading] = useState(true)
-    const [ordenesCortadas, setOrdenesCortadas] = useState<any[]>([])
+    const { data: ordenesCortadas, loading, loadingMore, hasMore, loadMore, reload: recargarCortes } = usePaginatedApi<any>('/api/admin_costura/cortadas', 'ordenes', false)
+    const { data: peticionesPagina, loading: loadingPeticiones, loadingMore: loadingMorePeticiones, hasMore: hasMorePeticiones, loadMore: cargarMasPeticiones, reload: recargarPeticiones } = usePaginatedApi<any>('/api/productos/peticiones', 'peticiones', false)
     const [modal, setModal] = useState<ModalState>({ isOpen: false, type: 'confirm', message: '' })
     
     // Estado para controlar solicitudes enviadas localmente en la sesión
@@ -42,40 +43,28 @@ export default function OrdenesCortadasPage() {
 
     // Mapa para registrar las peticiones pendientes consultadas en la BD
     const [peticionesBD, setPeticionesBD] = useState<Record<string, boolean>>({})
-    const isLatestRequest = useLatestRequest()
 
-    const cargarOrdenesCortadas = async (mostrarCarga = true) => {
-        const esUltimaSolicitud = isLatestRequest()
+    useEffect(() => {
+        if (!peticionesPagina.length) return
+        setPeticionesBD(prev => {
+            const actualizadas = { ...prev }
+            peticionesPagina.forEach((p: any) => {
+                if (p.codigo) actualizadas[p.codigo] = true
+                if (p.op) actualizadas[p.op] = true
+            })
+            return actualizadas
+        })
+    }, [peticionesPagina])
+
+    const cargarOrdenesCortadas = async () => {
         try {
             // Consultamos en paralelo las órdenes cortadas y las peticiones pendientes registradas en DB
-            const [resCortadas, resPeticiones] = await Promise.all([
-                fetch('/api/admin_costura/cortadas', { cache: 'no-store' }),
-                fetch('/api/productos/peticiones', { cache: 'no-store' })
+            await Promise.all([
+                recargarCortes(),
+                recargarPeticiones()
             ])
-
-            if (esUltimaSolicitud() && resCortadas.ok) {
-                const dataCortadas = await resCortadas.json()
-                if (dataCortadas.success) {
-                    setOrdenesCortadas(dataCortadas.ordenes || [])
-                }
-            }
-
-            if (esUltimaSolicitud() && resPeticiones.ok) {
-                const dataPeticiones = await resPeticiones.json()
-                if (dataPeticiones.success && Array.isArray(dataPeticiones.peticiones)) {
-                    const mapaPeticiones: Record<string, boolean> = {}
-                    dataPeticiones.peticiones.forEach((p: any) => {
-                        if (p.codigo) mapaPeticiones[p.codigo] = true;
-                        if (p.op) mapaPeticiones[p.op] = true;
-                    })
-                    setPeticionesBD(mapaPeticiones)
-                }
-            }
-
         } catch (error) {
             console.error("Error al cargar órdenes o peticiones:", error)
-        } finally {
-            if (mostrarCarga && esUltimaSolicitud()) setLoading(false)
         }
     }
 
@@ -96,7 +85,7 @@ export default function OrdenesCortadasPage() {
         void iniciar()
     }, [])
 
-    useRealtimeRefresh(() => cargarOrdenesCortadas(false))
+    useRealtimeRefresh(cargarOrdenesCortadas)
 
     const cerrarModal = () => setModal(prev => ({ ...prev, isOpen: false }))
 
@@ -350,7 +339,7 @@ export default function OrdenesCortadasPage() {
     ]
 
     if (loading) {
-        return <div className="text-center py-10 text-gray-400 text-sm">Cargando historial de cortes...</div>
+        return <SewingLoader message="Cargando órdenes cortadas" compact />
     }
 
     return (
@@ -368,8 +357,19 @@ export default function OrdenesCortadasPage() {
                     columns={columns}
                     searchField='op'
                     searchPlaceholder="Buscar por op..."
+                    hasMore={hasMore}
+                    loadingMore={loadingMore}
+                    onLoadMore={loadMore}
                 />
             </div>
+            {hasMorePeticiones && (
+                <div className="flex justify-center">
+                    <button type="button" onClick={cargarMasPeticiones} disabled={loadingMorePeticiones} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60">
+                        {loadingMorePeticiones ? 'Cargando solicitudes…' : 'Cargar más solicitudes pendientes'}
+                    </button>
+                </div>
+            )}
+            {loadingPeticiones && <SewingLoader message="Cargando solicitudes pendientes" compact />}
 
             {/* Modal Minimalista */}
             {modal.isOpen && (

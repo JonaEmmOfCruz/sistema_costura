@@ -1,11 +1,13 @@
 import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { RowDataPacket } from "mysql2";
+import { pageMetadata, pageRows, readPageParams } from "@/lib/pagination";
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { page, pageSize, offset } = readPageParams(request)
         // Hacemos LEFT JOIN con 'usuarios' y con 'ordenes_produccion'
         const [rows] = await pool.query<RowDataPacket[]>(`
             SELECT 
@@ -25,11 +27,13 @@ export async function GET() {
             LEFT JOIN usuarios u ON a.id_operador = u.id
             LEFT JOIN ordenes_produccion o ON a.op = o.op
             ORDER BY a.id DESC
-        `);
+            LIMIT ? OFFSET ?
+        `, [pageSize + 1, offset]);
 
         return NextResponse.json({
             success: true,
-            asignaciones: rows
+            asignaciones: pageRows(rows, pageSize),
+            pagination: pageMetadata(page, pageSize, rows.length)
         });
     } catch (error) {
         console.error('Error al obtener las asignaciones de costura', error);

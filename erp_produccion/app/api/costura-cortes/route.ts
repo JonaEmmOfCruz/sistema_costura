@@ -1,11 +1,13 @@
 import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { RowDataPacket } from "mysql2";
+import { pageMetadata, pageRows, readPageParams } from "@/lib/pagination";
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { page, pageSize, offset } = readPageParams(request)
         const [rows] = await pool.query<RowDataPacket[]>(`
             SELECT 
                 c.id,
@@ -23,11 +25,13 @@ export async function GET() {
             FROM admin_costura_cortes c
             LEFT JOIN ordenes_produccion o ON c.op = o.op
             ORDER BY c.id DESC
-        `);
+            LIMIT ? OFFSET ?
+        `, [pageSize + 1, offset]);
 
         return NextResponse.json({
             success: true,
-            cortes: rows
+            cortes: pageRows(rows, pageSize),
+            pagination: pageMetadata(page, pageSize, rows.length)
         });
     } catch (error) {
         console.error('Error al obtener los cortes de costura', error);

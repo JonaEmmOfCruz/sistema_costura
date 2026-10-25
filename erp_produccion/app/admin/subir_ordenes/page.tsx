@@ -1,28 +1,28 @@
 'use client'
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
-import useLatestRequest from "@/lib/useLatestRequest"
+import SewingLoader from "@/components/SewingLoader"
+import usePaginatedApi from "@/lib/usePaginatedApi"
 
 export default function SubirOrdenesPage() {
     const [file, setFile] = useState<File | null>(null)
-    const [loading, setLoading] = useState(false)
+    const [subiendoArchivo, setSubiendoArchivo] = useState(false)
     const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
     
     // Órdenes para la tabla principal
-    const [ordenes, setOrdenes] = useState<any[]>([])
+    const { data: ordenes, loading: loadingOrdenes, loadingMore: cargandoMasOrdenes, hasMore: hayMasOrdenes, loadMore: cargarMasOrdenes, reload: cargarOrdenesPrincipales } = usePaginatedApi<any>('/api/admin_costura/ordenes?dataset=ordenes', 'ordenes')
 
     // Estados para el Modal y las 3 tablas de Costura
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [activeTab, setActiveTab] = useState<'asignaciones' | 'cortes' | 'tiempos'>('asignaciones')
     
-    const [asignaciones, setAsignaciones] = useState<any[]>([])
-    const [cortes, setCortes] = useState<any[]>([])
-    const [tiempos, setTiempos] = useState<any[]>([])
+    const asignacionesPagina = usePaginatedApi<any>('/api/costura-asignaciones', 'asignaciones', false)
+    const cortesPagina = usePaginatedApi<any>('/api/costura-cortes', 'cortes', false)
+    const tiemposPagina = usePaginatedApi<any>('/api/costura-tiempos', 'tiempos', false)
     const [loadingModalData, setLoadingModalData] = useState(false)
-    const isLatestRequest = useLatestRequest()
 
     // Estados de filtros de FECHA EXCLUSIVOS por pestaña ({ field: string, date: string } | null)
     const [dateFilterAsignaciones, setDateFilterAsignaciones] = useState<{ field: string; date: string } | null>(null)
@@ -52,7 +52,7 @@ export default function SubirOrdenesPage() {
         e.preventDefault()
         if (!file) return
 
-        setLoading(true)
+        setSubiendoArchivo(true)
         setStatus(null)
 
         const formData = new FormData()
@@ -69,37 +69,16 @@ export default function SubirOrdenesPage() {
             if (res.ok && data.success) {
                 setStatus({ type: 'success', message: data.message })
                 setFile(null)
-                cargarOrdenesPrincipales()
+                void cargarOrdenesPrincipales()
             } else {
                 setStatus({ type: 'error', message: data.message || 'Error al subir el archivo' })
             }
         } catch (error) {
             setStatus({ type: 'error', message: 'Error de conexión con el servidor' })
         } finally {
-            setLoading(false)
+            setSubiendoArchivo(false)
         }
     }
-
-    // Cargar las órdenes principales
-    const cargarOrdenesPrincipales = async () => {
-        const esUltimaSolicitud = isLatestRequest('ordenes')
-        setLoading(true)
-        try {
-            const res = await fetch('/api/admin_costura/ordenes', { cache: 'no-store' })
-            const data = await res.json()
-            if (esUltimaSolicitud() && data.success) {
-                setOrdenes(data.ordenes)
-            }
-        } catch (error) {
-            console.error("Error al cargar órdenes:", error)
-        } finally {
-            if (esUltimaSolicitud()) setLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        cargarOrdenesPrincipales()
-    }, [])
 
     // Helpers para datos y formato de fecha (dd/mm/aa hh:mm:ss)
     const renderNullSafe = (value: any) => {
@@ -145,25 +124,19 @@ export default function SubirOrdenesPage() {
 
     // Cargar los datos del Modal
     const handleOpenModal = async () => {
-        const esUltimaSolicitud = isLatestRequest('modal')
         setIsModalOpen(true)
         setLoadingModalData(true)
 
         try {
-            const [dataAsignaciones, dataCortes, dataTiempos] = await Promise.all([
-                fetch('/api/costura-asignaciones', { cache: 'no-store' }).then(res => res.json()),
-                fetch('/api/costura-cortes', { cache: 'no-store' }).then(res => res.json()),
-                fetch('/api/costura-tiempos', { cache: 'no-store' }).then(res => res.json())
+            await Promise.all([
+                asignacionesPagina.reload(),
+                cortesPagina.reload(),
+                tiemposPagina.reload(),
             ])
-
-            if (!esUltimaSolicitud()) return
-            if (dataAsignaciones.success) setAsignaciones(dataAsignaciones.asignaciones)
-            if (dataCortes.success) setCortes(dataCortes.cortes)
-            if (dataTiempos.success) setTiempos(dataTiempos.tiempos)
         } catch (error) {
             console.error("Error al cargar datos del modal:", error)
         } finally {
-            if (esUltimaSolicitud()) setLoadingModalData(false)
+            setLoadingModalData(false)
         }
     }
 
@@ -368,7 +341,7 @@ export default function SubirOrdenesPage() {
         return result
     }
 
-    if (loading) return <div className="text-center py-10 text-gray-400 text-sm">Cargando órdenes...</div>
+    if (loadingOrdenes) return <SewingLoader message="Cargando órdenes" compact />
 
     return (
         <div className="mx-auto space-y-6">
@@ -424,10 +397,10 @@ export default function SubirOrdenesPage() {
 
                 <button 
                     type="submit" 
-                    disabled={!file || loading}
+                    disabled={!file || subiendoArchivo}
                     className="w-full bg-slate-900 text-white p-3.5 rounded-2xl font-medium hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
                 >
-                    {loading ? (
+                    {subiendoArchivo ? (
                         <>
                             <Icon icon="lucide:loader-2" className="text-xl animate-spin" />
                             <span>Procesando archivo...</span>
@@ -443,7 +416,7 @@ export default function SubirOrdenesPage() {
 
             {/* Tabla Principal */}
             <div className="space-y-3">
-                <ReusableTable data={ordenes} columns={columns} searchField='op' searchPlaceholder="Buscar por op..."/>
+                <ReusableTable data={ordenes} columns={columns} searchField='op' searchPlaceholder="Buscar por op..." hasMore={hayMasOrdenes} loadingMore={cargandoMasOrdenes} onLoadMore={cargarMasOrdenes}/>
             </div>
 
             {/* Modal con 3 pestañas */}
@@ -479,7 +452,7 @@ export default function SubirOrdenesPage() {
                                         : 'border-transparent text-gray-400 hover:text-gray-600'
                                 }`}
                             >
-                                Asignaciones de costura ({filterData(asignaciones, dateFilterAsignaciones).length})
+                                Asignaciones de costura ({filterData(asignacionesPagina.data, dateFilterAsignaciones).length})
                             </button>
                             <button
                                 onClick={() => setActiveTab('cortes')}
@@ -489,7 +462,7 @@ export default function SubirOrdenesPage() {
                                         : 'border-transparent text-gray-400 hover:text-gray-600'
                                 }`}
                             >
-                                Estatus de cortes ({filterData(cortes, dateFilterCortes).length})
+                                Estatus de cortes ({filterData(cortesPagina.data, dateFilterCortes).length})
                             </button>
                             <button
                                 onClick={() => setActiveTab('tiempos')}
@@ -499,43 +472,49 @@ export default function SubirOrdenesPage() {
                                         : 'border-transparent text-gray-400 hover:text-gray-600'
                                 }`}
                             >
-                                Estatus de costura ({filterData(tiempos, dateFilterTiempos).length})
+                                Estatus de costura ({filterData(tiemposPagina.data, dateFilterTiempos).length})
                             </button>
                         </div>
 
                         {/* Contenido del Modal */}
                         <div className="p-6 overflow-y-auto space-y-4 flex-1">
                             {loadingModalData ? (
-                                <div className="text-center py-10 text-gray-400 text-sm flex items-center justify-center gap-2">
-                                    <Icon icon="lucide:loader-2" className="animate-spin text-lg" />
-                                    <span>Cargando información...</span>
-                                </div>
+                                <SewingLoader message="Cargando historial de costura" compact />
                             ) : (
                                 <>
                                     {activeTab === 'asignaciones' && (
                                         <ReusableTable
-                                            data={filterData(asignaciones, dateFilterAsignaciones)}
+                                            data={filterData(asignacionesPagina.data, dateFilterAsignaciones)}
                                             columns={asignacionesColumns}
                                             searchField="op"
                                             searchPlaceholder="Buscar asignación por OP..."
+                                            hasMore={asignacionesPagina.hasMore}
+                                            loadingMore={asignacionesPagina.loadingMore}
+                                            onLoadMore={asignacionesPagina.loadMore}
                                         />
                                     )}
 
                                     {activeTab === 'cortes' && (
                                         <ReusableTable
-                                            data={filterData(cortes, dateFilterCortes)}
+                                            data={filterData(cortesPagina.data, dateFilterCortes)}
                                             columns={cortesColumns}
                                             searchField="op"
                                             searchPlaceholder="Buscar corte por OP..."
+                                            hasMore={cortesPagina.hasMore}
+                                            loadingMore={cortesPagina.loadingMore}
+                                            onLoadMore={cortesPagina.loadMore}
                                         />
                                     )}
 
                                     {activeTab === 'tiempos' && (
                                         <ReusableTable
-                                            data={filterData(tiempos, dateFilterTiempos)}
+                                            data={filterData(tiemposPagina.data, dateFilterTiempos)}
                                             columns={tiemposColumns}
                                             searchField="op"
                                             searchPlaceholder="Buscar tiempo por OP..."
+                                            hasMore={tiemposPagina.hasMore}
+                                            loadingMore={tiemposPagina.loadingMore}
+                                            onLoadMore={tiemposPagina.loadMore}
                                         />
                                     )}
                                 </>

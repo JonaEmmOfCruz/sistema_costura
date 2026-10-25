@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react"
 import { Icon } from "@iconify/react"
 import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
-import useLatestRequest from "@/lib/useLatestRequest"
+import SewingLoader from "@/components/SewingLoader"
+import usePaginatedApi from "@/lib/usePaginatedApi"
 
 const PREFIJOS_PRIORITARIOS = [
     "101-002", "101-006", "101-183", "101-320", "102-008",
@@ -105,9 +106,11 @@ function AnimacionArmadoSilla() {
 }
 
 export default function AdminCosturaOrdenesPage() {
-    const [loading, setLoading] = useState(false)
-    const [ordenes, setOrdenes] = useState<any[]>([])
-    const [ordenesEnEspera, setOrdenesEnEspera] = useState<any[]>([])
+    const ordenesPagina = usePaginatedApi<any>('/api/admin_costura/ordenes?dataset=ordenes', 'ordenes')
+    const esperaPagina = usePaginatedApi<any>('/api/admin_costura/ordenes?dataset=espera', 'en_espera')
+    const ordenes = ordenesPagina.data
+    const ordenesEnEspera = esperaPagina.data
+    const loading = ordenesPagina.loading || esperaPagina.loading
     const [ordenEnCorte, setOrdenEnCorte] = useState<any | null>(null)
     const [ordenSeleccionadaEspera, setOrdenSeleccionadaEspera] = useState<number | null>(null)
     const [motivoEspera, setMotivoEspera] = useState<(typeof MOTIVOS_ESPERA)[number] | ''>('')
@@ -115,54 +118,38 @@ export default function AdminCosturaOrdenesPage() {
     const segundosTranscurridosRef = useRef(0)
     const [inicioCorteMs, setInicioCorteMs] = useState<number | null>(null)
     const [segundosIniciales, setSegundosIniciales] = useState(0)
-    const isLatestRequest = useLatestRequest()
 
-    const cargarOrdenes = async (mostrarCarga = true) => {
-        const esUltimaSolicitud = isLatestRequest()
-        if (mostrarCarga) setLoading(true)
-        try {
-            const res = await fetch('/api/admin_costura/ordenes', { cache: 'no-store' })
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            const data = await res.json()
-            if (esUltimaSolicitud() && data.success) {
-                setOrdenes(data.ordenes)
-                setOrdenesEnEspera(Array.isArray(data.en_espera) ? data.en_espera : [])
-
-                const enProceso = data.ordenes.find((o: any) => o.estado === 'corte en proceso')
-                setOrdenEnCorte(enProceso || null)
-                if (enProceso) {
-                    const inicioGuardado = localStorage.getItem(`corte_inicio_${enProceso.id}`)
-                    if (inicioGuardado) {
-                        const segundosCalculados = Math.floor((Date.now() - Number(inicioGuardado)) / 1000)
-                        const segundosActuales = segundosCalculados > 0 ? segundosCalculados : 0
-                        segundosTranscurridosRef.current = segundosActuales
-                        setSegundosIniciales(segundosActuales)
-                        setInicioCorteMs(Number(inicioGuardado))
-                    } else {
-                        const inicio = Date.now()
-                        localStorage.setItem(`corte_inicio_${enProceso.id}`, inicio.toString())
-                        segundosTranscurridosRef.current = 0
-                        setSegundosIniciales(0)
-                        setInicioCorteMs(inicio)
-                    }
-                } else {
-                    segundosTranscurridosRef.current = 0
-                    setSegundosIniciales(0)
-                    setInicioCorteMs(null)
-                }
-            }
-        } catch (error) {
-            console.error("Error al cargar órdenes:", error)
-        } finally {
-            if (mostrarCarga && esUltimaSolicitud()) setLoading(false)
-        }
+    const cargarOrdenes = async () => {
+        await Promise.all([ordenesPagina.reload(), esperaPagina.reload()])
     }
 
     useEffect(() => {
-        cargarOrdenes()
-    }, [])
+        if (ordenesPagina.loading) return
+        const enProceso = ordenes.find((orden) => orden.estado === 'corte en proceso')
+        setOrdenEnCorte(enProceso || null)
+        if (enProceso) {
+            const inicioGuardado = localStorage.getItem(`corte_inicio_${enProceso.id}`)
+            if (inicioGuardado) {
+                const segundosCalculados = Math.floor((Date.now() - Number(inicioGuardado)) / 1000)
+                const segundosActuales = segundosCalculados > 0 ? segundosCalculados : 0
+                segundosTranscurridosRef.current = segundosActuales
+                setSegundosIniciales(segundosActuales)
+                setInicioCorteMs(Number(inicioGuardado))
+            } else {
+                const inicio = Date.now()
+                localStorage.setItem(`corte_inicio_${enProceso.id}`, inicio.toString())
+                segundosTranscurridosRef.current = 0
+                setSegundosIniciales(0)
+                setInicioCorteMs(inicio)
+            }
+        } else {
+            segundosTranscurridosRef.current = 0
+            setSegundosIniciales(0)
+            setInicioCorteMs(null)
+        }
+    }, [ordenes, ordenesPagina.loading])
 
-    useRealtimeRefresh(() => cargarOrdenes(false))
+    useRealtimeRefresh(cargarOrdenes)
 
     const handleEnviarAPapeleraIndividual = async (id: number) => {
         if (ordenEnCorte && ordenEnCorte.id === id) {
@@ -178,7 +165,7 @@ export default function AdminCosturaOrdenesPage() {
             })
             const data = await res.json()
             if (res.ok && data.success) {
-                await cargarOrdenes(false)
+                await cargarOrdenes()
             } else {
                 alert(data.message || "Error al enviar la orden a papelera")
             }
@@ -207,7 +194,7 @@ export default function AdminCosturaOrdenesPage() {
                 const inicio = Date.now()
                 setInicioCorteMs(inicio)
                 localStorage.setItem(`corte_inicio_${orden.id}`, inicio.toString())
-                await cargarOrdenes(false)
+                await cargarOrdenes()
             } else {
                 alert(data.message || 'No se pudo iniciar el corte.')
             }
@@ -232,7 +219,7 @@ export default function AdminCosturaOrdenesPage() {
                 segundosTranscurridosRef.current = 0
                 setSegundosIniciales(0)
                 setInicioCorteMs(null)
-                await cargarOrdenes(false)
+                await cargarOrdenes()
             } else {
                 alert(data.message || 'No se pudo finalizar el corte.')
             }
@@ -257,7 +244,7 @@ export default function AdminCosturaOrdenesPage() {
 
             setOrdenSeleccionadaEspera(null)
             setMotivoEspera('')
-            await cargarOrdenes(false)
+            await cargarOrdenes()
         } catch (error) {
             console.error('Error al actualizar OP en espera:', error)
             alert('Error de conexión al actualizar el estado de espera.')
@@ -397,7 +384,7 @@ export default function AdminCosturaOrdenesPage() {
         }
     ]
 
-    if (loading) return <div className="text-center py-10 text-gray-400 text-sm">Cargando órdenes de costura...</div>
+    if (loading) return <SewingLoader message="Cargando órdenes de costura" compact />
 
     return (
         <div className="mx-auto space-y-6">
@@ -440,7 +427,7 @@ export default function AdminCosturaOrdenesPage() {
                     <AnimacionArmadoSilla />
                 </div>
 
-                <ReusableTable data={ordenesOrdenadas} columns={columns} searchField='op' searchPlaceholder="Buscar por op..."/>
+                <ReusableTable data={ordenesOrdenadas} columns={columns} searchField='op' searchPlaceholder="Buscar por op..." hasMore={ordenesPagina.hasMore} loadingMore={ordenesPagina.loadingMore} onLoadMore={ordenesPagina.loadMore}/>
             </div>
 
             <section className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/40 p-4 sm:p-6">
@@ -487,6 +474,13 @@ export default function AdminCosturaOrdenesPage() {
                                 </button>
                             </article>
                         ))}
+                    </div>
+                )}
+                {esperaPagina.hasMore && (
+                    <div className="flex justify-center">
+                        <button type="button" onClick={esperaPagina.loadMore} disabled={esperaPagina.loadingMore} className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-white px-4 py-2 text-xs font-semibold text-amber-800 disabled:opacity-60">
+                            {esperaPagina.loadingMore ? 'Cargando más órdenes…' : 'Cargar siguientes 50 órdenes en espera'}
+                        </button>
                     </div>
                 )}
             </section>

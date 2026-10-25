@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Header from '@/components/Header' // Asegúrate de que esta ruta sea la correcta
+import SewingLoader from '@/components/SewingLoader'
 
 export default function OperadorLayout({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<{ nombre: string, tipo_usuario: string } | null>(null)
@@ -55,9 +56,7 @@ export default function OperadorLayout({ children }: { children: React.ReactNode
 
     if (estado === 'loading') {
         return (
-            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-                <span className="text-sm font-medium text-slate-500 animate-pulse">Cargando estación...</span>
-            </div>
+            <SewingLoader message="Preparando la estación de trabajo" />
         )
     }
 

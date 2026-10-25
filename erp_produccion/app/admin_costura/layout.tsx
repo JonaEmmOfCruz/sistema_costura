@@ -2,6 +2,7 @@
 
 import Header from "@/components/Header"
 import Sidebar from "@/components/Sidebar"
+import SewingLoader from "@/components/SewingLoader"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 
@@ -44,11 +45,7 @@ export default function AdminCosturaLayout({ children }: { children: React.React
         fetchUserData()
     }, [router])
 
-    if (loading) return (
-        <div className="flex h-screen items-center justify-center bg-gray-50 text-gray-500">
-            <p>Cargando panel de costura...</p>
-        </div>
-    )
+    if (loading) return <SewingLoader message="Verificando acceso al área de costura" />
 
     if (!user) return null
 

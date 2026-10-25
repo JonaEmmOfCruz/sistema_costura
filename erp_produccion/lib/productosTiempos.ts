@@ -7,7 +7,7 @@ export function tiempoCosturaPorPrefijoSql(aliasProducto: string): string {
     return `(
         SELECT pt.t_costura
         FROM productos_tiempos pt
-        WHERE LEFT(TRIM(pt.cod_proceso), 7) = LEFT(TRIM(${aliasProducto}.producto), 7)
+        WHERE pt.cod_proceso LIKE CONCAT(LEFT(TRIM(${aliasProducto}.producto), 7), '%')
         ORDER BY
             CASE WHEN CHAR_LENGTH(TRIM(pt.cod_proceso)) = 7 THEN 0 ELSE 1 END,
             CHAR_LENGTH(TRIM(pt.cod_proceso)) ASC,

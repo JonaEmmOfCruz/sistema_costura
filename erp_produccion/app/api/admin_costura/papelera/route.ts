@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/db'
 import { RowDataPacket } from "mysql2";
+import { pageMetadata, pageRows, readPageParams } from "@/lib/pagination";
 export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
     try {
@@ -72,15 +73,18 @@ export async function POST(request: Request) {
     }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { page, pageSize, offset } = readPageParams(request)
         const [rows] = await pool.query<RowDataPacket[]>(
-            'select * from admin_costura_papelera order by id ASC'
+            'select * from admin_costura_papelera order by id ASC LIMIT ? OFFSET ?',
+            [pageSize + 1, offset]
         )
 
         return NextResponse.json({
             success: true,
-            ordenes: rows
+            ordenes: pageRows(rows, pageSize),
+            pagination: pageMetadata(page, pageSize, rows.length)
         })
     } catch (error) {
         console.error('Error al obtener las ordenes de produccion', error)

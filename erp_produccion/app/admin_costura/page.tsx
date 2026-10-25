@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from "react"
+import SewingLoader from "@/components/SewingLoader"
 
 export default function AdminCosturaDashboard() {
     const [user, setUser] = useState<any>(null)
@@ -22,11 +23,7 @@ export default function AdminCosturaDashboard() {
         fetchUserData()
     }, [])
 
-    if (loading) return (
-        <div className="flex h-screen items-center justify-center bg-gray-50 text-gray-500">
-            <p>Cargando panel...</p>
-        </div>
-    )
+    if (loading) return <SewingLoader message="Cargando panel de costura" />
 
     if (!user) return null
 

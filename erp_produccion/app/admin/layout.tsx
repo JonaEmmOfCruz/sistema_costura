@@ -2,6 +2,7 @@
 
 import Header from "@/components/Header"
 import Sidebar from "@/components/Sidebar"
+import SewingLoader from "@/components/SewingLoader"
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 
@@ -43,11 +44,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         fetchUserData()
     }, [router])
 
-    if (loading) return (
-        <div className="flex h-screen items-center justify-center bg-gray-50 text-gray-500">
-            <p>Cargando panel...</p>
-        </div>
-    )
+    if (loading) return <SewingLoader message="Verificando acceso de administración" />
 
     if (!user) return null
 

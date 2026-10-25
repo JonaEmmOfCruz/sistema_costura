@@ -18,6 +18,7 @@ import {
     YAxis,
 } from "recharts"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
+import SewingLoader from "@/components/SewingLoader"
 
 interface OperatorMetric {
     nombre: string
@@ -362,10 +363,7 @@ export default function ProductionAnalyticsDashboard() {
             )}
 
             {loading && !analytics ? (
-                <div className="flex h-64 items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white text-slate-500">
-                    <Icon icon="lucide:loader-circle" className="animate-spin text-xl text-blue-600" />
-                    Cargando análisis de producción...
-                </div>
+                <SewingLoader message="Cargando análisis de producción" compact />
             ) : analytics ? (
                 <>
                     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

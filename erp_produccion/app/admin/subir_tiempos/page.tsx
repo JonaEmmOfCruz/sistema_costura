@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Icon } from "@iconify/react"
-import ReusableTable from "@/components/ReusableTable"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 import useLatestRequest from "@/lib/useLatestRequest"
+import usePaginatedApi from "@/lib/usePaginatedApi"
+import SewingLoader from "@/components/SewingLoader"
 
 interface PeticionTiempo {
     id: number;
@@ -16,20 +17,41 @@ interface PeticionTiempo {
 }
 
 interface ProductoTiempo {
+    id?: number
+    id_proceso?: number | string | null
     [key: string]: string | number | null | undefined
     cod_proceso?: string | null
     descripcion?: string | null
     t_costura?: number | string | null
 }
 
+const CAMPOS_PRODUCTO: { key: keyof ProductoTiempo; label: string; numeric?: boolean }[] = [
+    { key: 'cod_proceso', label: 'Código de proceso' },
+    { key: 'descripcion', label: 'Descripción' },
+    { key: 'costura', label: 'Costura' },
+    { key: 't_costura', label: 'Tiempo costura (segundos)', numeric: true },
+    { key: 'tapizado', label: 'Tapizado' },
+    { key: 't_tapizado', label: 'Tiempo tapizado (segundos)', numeric: true },
+    { key: 'armado', label: 'Armado' },
+    { key: 't_armado', label: 'Tiempo armado (segundos)', numeric: true },
+    { key: 'montado', label: 'Montado' },
+    { key: 't_montado', label: 'Tiempo montado (segundos)', numeric: true },
+    { key: 'empaque', label: 'Empaque' },
+    { key: 't_empaque', label: 'Tiempo empaque (segundos)', numeric: true },
+    { key: 'corte', label: 'Corte' },
+    { key: 't_corte', label: 'Tiempo corte (segundos)', numeric: true },
+]
+
+const productoVacio = () => Object.fromEntries(CAMPOS_PRODUCTO.map(({ key }) => [key, ''])) as Record<string, string>
+
 export default function SubirTiemposProductosPage() {
     const [file, setFile] = useState<File | null>(null)
     const [loading, setLoading] = useState(false)
     const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-    const [productos, setProductos] = useState<ProductoTiempo[]>([])
+    const { data: productos, setData: setProductos, loading: loadingProductos, loadingMore, hasMore, loadMore, reload: cargarProductos } = usePaginatedApi<ProductoTiempo>('/api/productos/tiempos', 'productos')
 
     // Estado para la lista de peticiones de la BD
-    const [peticiones, setPeticiones] = useState<PeticionTiempo[]>([])
+    const { data: peticiones, loading: loadingPeticiones, loadingMore: loadingMorePeticiones, hasMore: hasMorePeticiones, loadMore: loadMorePeticiones, reload: cargarPeticiones } = usePaginatedApi<PeticionTiempo>('/api/productos/peticiones', 'peticiones')
     const [peticionSeleccionada, setPeticionSeleccionada] = useState<PeticionTiempo | null>(null)
 
     // Estados para el proceso de escaneo / búsqueda automática
@@ -47,6 +69,77 @@ export default function SubirTiemposProductosPage() {
     const [columnFilters, setColumnFilters] = useState<{ [key: string]: string[] }>({})
     const [activeFilterField, setActiveFilterField] = useState<string | null>(null)
     const isLatestRequest = useLatestRequest()
+    const [borradoresProductos, setBorradoresProductos] = useState<Record<number, Record<string, string>>>({})
+    const [nuevoProducto, setNuevoProducto] = useState<Record<string, string>>(productoVacio)
+    const [guardandoProducto, setGuardandoProducto] = useState(false)
+    const [busquedaCatalogo, setBusquedaCatalogo] = useState('')
+    const [estadoCatalogo, setEstadoCatalogo] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+    const actualizarCelda = (producto: ProductoTiempo, campo: string, valor: string) => {
+        if (producto.id === null || producto.id === undefined) return
+        setBorradoresProductos(current => ({
+            ...current,
+            [producto.id as number]: {
+                ...Object.fromEntries(CAMPOS_PRODUCTO.map(({ key }) => [key, String(producto[key] ?? '')])),
+                ...current[producto.id as number],
+                [campo]: valor,
+            },
+        }))
+    }
+
+    const guardarProducto = async (id: number) => {
+        const borrador = borradoresProductos[id]
+        const original = productos.find(row => Number(row.id) === id)
+        if (!borrador || !original) return true
+        const producto = Object.fromEntries(CAMPOS_PRODUCTO
+            .filter(({ key }) => String(original[key] ?? '') !== String(borrador[String(key)] ?? original[key] ?? ''))
+            .map(({ key }) => [String(key), borrador[String(key)]]))
+        if (!Object.keys(producto).length) return true
+        setGuardandoProducto(true)
+        try {
+            const response = await fetch('/api/productos/crud', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accion: 'modificar_producto', id, producto }),
+            })
+            const result = await response.json()
+            if (!response.ok || !result.success) throw new Error(result.message || 'No se pudo guardar el producto.')
+            if (result.merged) {
+                setProductos(current => current.filter(row => Number(row.id) !== id))
+                await cargarProductos()
+            } else {
+                setProductos(current => current.map(row => Number(row.id) === id ? { ...row, ...producto } : row))
+            }
+            setBorradoresProductos(current => { const next = { ...current }; delete next[id]; return next })
+            setEstadoCatalogo({ type: 'success', message: result.message })
+            return true
+        } catch (error) {
+            setEstadoCatalogo({ type: 'error', message: error instanceof Error ? error.message : 'No se pudo guardar el producto.' })
+            return false
+        } finally {
+            setGuardandoProducto(false)
+        }
+    }
+
+    const agregarProducto = async () => {
+        setGuardandoProducto(true)
+        try {
+            const response = await fetch('/api/productos/crud', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accion: 'agregar', producto: nuevoProducto }),
+            })
+            const result = await response.json()
+            if (!response.ok || !result.success) throw new Error(result.message || 'No se pudo agregar el producto.')
+            setNuevoProducto(productoVacio())
+            setEstadoCatalogo({ type: 'success', message: result.message })
+            await cargarProductos()
+        } catch (error) {
+            setEstadoCatalogo({ type: 'error', message: error instanceof Error ? error.message : 'No se pudo agregar el producto.' })
+        } finally {
+            setGuardandoProducto(false)
+        }
+    }
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -100,63 +193,11 @@ export default function SubirTiemposProductosPage() {
         }
     }
 
-    const cargarProductos = () => {
-        const esUltimaSolicitud = isLatestRequest('productos')
-        setLoading(true)
-        return fetch('/api/productos/tiempos', { cache: 'no-store' })
-            .then(res => res.json())
-            .then(data => {
-                if (esUltimaSolicitud() && data.success) setProductos(data.productos || [])
-                if (esUltimaSolicitud()) setLoading(false)
-            })
-            .catch((error) => {
-                console.error("Error al cargar productos:", error)
-                if (esUltimaSolicitud()) setLoading(false)
-            })
-    }
-
-    const cargarPeticiones = () => {
-        const esUltimaSolicitud = isLatestRequest('peticiones')
-        return fetch('/api/productos/peticiones', { cache: 'no-store' })
-            .then(res => res.json())
-            .then(data => {
-                if (esUltimaSolicitud() && data.success) setPeticiones(data.peticiones || [])
-            })
-            .catch((error) => console.error("Error al cargar peticiones:", error))
-    }
-
-    useEffect(() => {
-        cargarProductos()
-        cargarPeticiones()
-    }, [])
-
     useRealtimeRefresh(async () => {
         await Promise.all([cargarProductos(), cargarPeticiones()])
     })
 
-    // FILTRADO AUTOMÁTICO: Oculta peticiones que ya tengan un tiempo registrado en la tabla de productos
-    const peticionesPendientes = useMemo(() => {
-        const codigosConTiempo = new Set<string>()
-        const nombresConTiempo = new Set<string>()
-
-        for (const producto of productos) {
-            if (!(Number(producto.t_costura) > 0)) continue
-            if (producto.cod_proceso) {
-                codigosConTiempo.add(String(producto.cod_proceso).trim().toLowerCase())
-            }
-            if (producto.descripcion) {
-                nombresConTiempo.add(String(producto.descripcion).trim().toLowerCase())
-            }
-        }
-
-        return peticiones.filter(peticion => {
-            const coincideCodigo = Boolean(peticion.codigo)
-                && codigosConTiempo.has(String(peticion.codigo).trim().toLowerCase())
-            const coincideNombre = Boolean(peticion.nombre_secundario)
-                && nombresConTiempo.has(String(peticion.nombre_secundario).trim().toLowerCase())
-            return !coincideCodigo && !coincideNombre
-        })
-    }, [peticiones, productos])
+    const peticionesPendientes = peticiones
 
     // BÚSQUEDA AUTOMÁTICA Y ANIMACIÓN AL SELECCIONAR UNA PETICIÓN
     const handleAsignarTiempoClick = async (peticion: PeticionTiempo) => {
@@ -399,67 +440,10 @@ export default function SubirTiemposProductosPage() {
         )
     }
 
-    const columns = [
-        {
-            header: <FilterHeaderModal title="Código de proceso" fieldKey="cod_proceso" />,
-            accessorKey: 'cod_proceso'
-        },
-        {
-            header: <FilterHeaderModal title="Descripción" fieldKey="descripcion" />,
-            accessorKey: 'descripcion'
-        },
-        {
-            header: <FilterHeaderModal title="Costura" fieldKey="costura" />,
-            accessorKey: 'costura'
-        },
-        {
-            header: <FilterHeaderModal title="Tiempo costura (segundos)" fieldKey="t_costura" />,
-            accessorKey: 't_costura'
-        },
-        {
-            header: <FilterHeaderModal title="Tapizado" fieldKey="tapizado" />,
-            accessorKey: 'tapizado'
-        },
-        {
-            header: <FilterHeaderModal title="Tiempo tapizado" fieldKey="t_tapizado" />,
-            accessorKey: 't_tapizado'
-        },
-        {
-            header: <FilterHeaderModal title="Armado" fieldKey="armado" />,
-            accessorKey: 'armado'
-        },
-        {
-            header: <FilterHeaderModal title="Tiempo armado" fieldKey="t_armado" />,
-            accessorKey: 't_armado'
-        },
-        {
-            header: <FilterHeaderModal title="Montado" fieldKey="montado" />,
-            accessorKey: 'montado'
-        },
-        {
-            header: <FilterHeaderModal title="Tiempo montado" fieldKey="t_montado" />,
-            accessorKey: 't_montado'
-        },
-        {
-            header: <FilterHeaderModal title="Empaque" fieldKey="empaque" />,
-            accessorKey: 'empaque'
-        },
-        {
-            header: <FilterHeaderModal title="Tiempo empaque" fieldKey="t_empaque" />,
-            accessorKey: 't_empaque'
-        },
-        {
-            header: <FilterHeaderModal title="Corte" fieldKey="corte" />,
-            accessorKey: 'corte'
-        },
-        {
-            header: <FilterHeaderModal title="Tiempo corte" fieldKey="t_corte" />,
-            accessorKey: 't_corte'
-        }
-    ]
-
     const productosFiltrados = productos.filter(row => {
-        return Object.keys(columnFilters).every(fieldKey => {
+        const termino = busquedaCatalogo.trim().toLocaleLowerCase()
+        const coincideBusqueda = !termino || String(row.cod_proceso ?? '').toLocaleLowerCase().includes(termino)
+        return coincideBusqueda && Object.keys(columnFilters).every(fieldKey => {
             const allowedValues = columnFilters[fieldKey]
             if (!allowedValues || allowedValues.length === 0) return true
             const rowValue = String(row[fieldKey] ?? '-')
@@ -496,7 +480,7 @@ export default function SubirTiemposProductosPage() {
                     </button>
                 </div>
 
-                {peticionesPendientes.length === 0 ? (
+                {loadingPeticiones ? <SewingLoader message="Cargando solicitudes de tiempo" compact /> : peticionesPendientes.length === 0 ? (
                     <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-gray-200">
                         <Icon icon="lucide:check-circle-2" className="text-3xl text-emerald-500 mx-auto mb-2" />
                         <p className="text-sm font-medium text-gray-700">Sin peticiones pendientes</p>
@@ -538,6 +522,14 @@ export default function SubirTiemposProductosPage() {
                                 </button>
                             </div>
                         ))}
+                    </div>
+                )}
+
+                {hasMorePeticiones && (
+                    <div className="flex justify-center">
+                        <button type="button" onClick={loadMorePeticiones} disabled={loadingMorePeticiones} className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-xs font-semibold text-indigo-700 disabled:opacity-60">
+                            {loadingMorePeticiones ? 'Cargando solicitudes…' : 'Cargar siguientes 50 solicitudes'}
+                        </button>
                     </div>
                 )}
 
@@ -711,14 +703,55 @@ export default function SubirTiemposProductosPage() {
             </div>
 
             {/* SECCIÓN 3: TABLA DE DATOS */}
-            <div>
-                <ReusableTable
-                    data={productosFiltrados}
-                    columns={columns}
-                    searchField='descripcion'
-                    searchPlaceholder="Buscar por código o descripción..."
-                />
-            </div>
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h2 className="font-semibold text-slate-800">Catálogo editable</h2>
+                        <p className="text-xs text-slate-500">Edita directamente las celdas; cada cambio se guarda al salir del campo. Los campos de tiempo se capturan en segundos.</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <input value={busquedaCatalogo} onChange={event => setBusquedaCatalogo(event.target.value)} placeholder="Buscar por código de proceso..." className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-gray-700 placeholder:text-gray-700 outline-none focus:border-indigo-400" />
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500"><Icon icon="lucide:cloud-check" className="text-emerald-600" /> Guardado automático</span>
+                    </div>
+                </div>
+                {estadoCatalogo && <div role="status" className={`border-b px-4 py-2 text-sm ${estadoCatalogo.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>{estadoCatalogo.message}</div>}
+
+                {loadingProductos ? <SewingLoader message="Cargando catálogo de tiempos" compact /> : (
+                    <div className="overflow-auto">
+                        <table className="min-w-[1900px] border-collapse text-left text-xs">
+                            <thead className="sticky top-0 z-10 bg-slate-100 text-slate-600">
+                                <tr>
+                                    <th className="sticky left-0 z-20 border-b border-r border-slate-200 bg-slate-100 px-3 py-3">Estado</th>
+                                    {CAMPOS_PRODUCTO.map(({ key, label }) => <th key={String(key)} className="border-b border-r border-slate-200 px-3 py-2 font-semibold"><FilterHeaderModal title={label} fieldKey={String(key)} /></th>)}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr className="bg-indigo-50/70">
+                                    <td className="sticky left-0 border-b border-r border-slate-200 bg-indigo-50 px-3 py-2">
+                                        <button type="button" onClick={agregarProducto} disabled={guardandoProducto || !nuevoProducto.cod_proceso.trim() || !nuevoProducto.descripcion.trim()} className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 font-semibold text-white disabled:opacity-40"><Icon icon="lucide:plus" /> Agregar</button>
+                                    </td>
+                                    {CAMPOS_PRODUCTO.map(({ key, label, numeric }) => <td key={String(key)} className="border-b border-r border-slate-200 p-1"><input aria-label={`Nuevo ${label}`} type={numeric ? 'number' : 'text'} min={numeric ? 0 : undefined} step={numeric ? 'any' : undefined} value={nuevoProducto[String(key)] ?? ''} onChange={event => setNuevoProducto(current => ({ ...current, [String(key)]: event.target.value }))} placeholder={label} className="w-full min-w-28 rounded border border-indigo-100 bg-white px-2 py-2 text-gray-700 placeholder:text-gray-700 outline-none focus:border-indigo-400" /></td>)}
+                                </tr>
+                                {productosFiltrados.map((producto, index) => {
+                                    const id = Number(producto.id)
+                                    const borrador: Record<string, string> = borradoresProductos[id] || {}
+                                    const tieneCambios = CAMPOS_PRODUCTO.some(({ key }) => String(producto[key] ?? '') !== String(borrador[String(key)] ?? producto[key] ?? ''))
+                                    return (
+                                        <tr key={producto.id ?? index} className={`group ${index % 2 ? 'bg-slate-50/60' : 'bg-white'} hover:bg-indigo-50/40`}>
+                                            <td className="sticky left-0 border-b border-r border-slate-200 bg-inherit px-3 py-1.5">
+                                                <span aria-label={tieneCambios ? 'Cambio pendiente de guardar' : 'Fila guardada'} title={tieneCambios ? 'Cambio pendiente de guardar' : 'Fila guardada'} className={`rounded-md p-2 ${tieneCambios ? 'text-amber-500' : 'text-emerald-600'}`}><Icon icon={tieneCambios ? 'lucide:cloud-upload' : 'lucide:cloud-check'} /></span>
+                                            </td>
+                                            {CAMPOS_PRODUCTO.map(({ key, label, numeric }) => <td key={String(key)} className="border-b border-r border-slate-200 p-1"><input aria-label={`${label}, ${producto.cod_proceso ?? ''}`} type={numeric ? 'number' : 'text'} min={numeric ? 0 : undefined} step={numeric ? 'any' : undefined} value={borrador[String(key)] ?? String(producto[key] ?? '')} onChange={event => actualizarCelda(producto, String(key), event.target.value)} onBlur={() => { if (tieneCambios && producto.id) void guardarProducto(Number(producto.id)) }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} disabled={guardandoProducto} placeholder={label} className="w-full min-w-28 rounded border border-transparent bg-transparent px-2 py-2 text-gray-700 placeholder:text-gray-700 outline-none hover:border-slate-200 focus:border-indigo-400 focus:bg-white disabled:opacity-70" /></td>)}
+                                        </tr>
+                                    )
+                                })}
+                                {!productosFiltrados.length && <tr><td colSpan={CAMPOS_PRODUCTO.length + 1} className="p-8 text-center text-slate-400">No hay productos que coincidan con la búsqueda o los filtros.</td></tr>}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                {!loadingProductos && hasMore && <div className="flex justify-center border-t border-slate-100 p-4"><button type="button" onClick={loadMore} disabled={loadingMore} className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">{loadingMore ? 'Cargando…' : 'Cargar siguientes 50 productos'}</button></div>}
+            </section>
         </div>
     )
 }

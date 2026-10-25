@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { Icon } from "@iconify/react"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
 import useLatestRequest from "@/lib/useLatestRequest"
+import SewingLoader from "@/components/SewingLoader"
 
 function formatTiempo(seg: number) {
     const h = Math.floor(seg / 3600)
@@ -74,6 +75,7 @@ export default function OperadorPage() {
     const [user, setUser] = useState<any>(null)
     const [asignacion, setAsignacion] = useState<any | null>(null)
     const [asignacionesBloqueadas, setAsignacionesBloqueadas] = useState<any[]>([])
+    const [cargandoAsignacionInicial, setCargandoAsignacionInicial] = useState(true)
     const [mostrarAlerta, setMostrarAlerta] = useState(false)
     const [alertaCambioPrioritario, setAlertaCambioPrioritario] = useState(false)
     const segundosRef = useRef(0)
@@ -221,6 +223,8 @@ export default function OperadorPage() {
             }
         } catch (error) {
             console.error("Error al cargar asignación:", error)
+        } finally {
+            if (esUltimaSolicitud()) setCargandoAsignacionInicial(false)
         }
     }
 
@@ -313,6 +317,10 @@ export default function OperadorPage() {
                  <span className="text-sm font-medium animate-pulse">Verificando tareas...</span>
             </div>
         )
+    }
+
+    if (cargandoAsignacionInicial) {
+        return <SewingLoader message="Buscando tu siguiente orden de costura" />
     }
 
     if (!asignacion && !asignacionesBloqueadas.length && !mostrarAlerta) {

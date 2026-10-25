@@ -1,8 +1,10 @@
 'use client'
 import { useEffect, useMemo, useState } from "react"
 import AreaCard from "@/components/AreaCard"
+import { Icon } from "@iconify/react"
 import useRealtimeRefresh from "@/lib/useRealtimeRefresh"
-import useLatestRequest from "@/lib/useLatestRequest"
+import SewingLoader from "@/components/SewingLoader"
+import usePaginatedApi from "@/lib/usePaginatedApi"
 
 interface AsignacionOperador {
     nombre_operador?: string | null
@@ -12,31 +14,23 @@ interface AsignacionOperador {
 
 export default function OperadoresPage() {
     const [loading, setLoading] = useState(true)
-    const [operadores, setOperadores] = useState<any[]>([])
-    const [asignadas, setAsignadas] = useState<AsignacionOperador[]>([])
-    const isLatestRequest = useLatestRequest()
+    const operadoresPagina = usePaginatedApi<any>('/api/operadores', 'usuarios', false)
+    const asignadasPagina = usePaginatedApi<AsignacionOperador>('/api/admin_costura/asignadas', 'asignadas', false)
+    const operadores = operadoresPagina.data
+    const asignadas = asignadasPagina.data
 
-    const cargarOperadores = async () => {
-        const esUltimaSolicitud = isLatestRequest('operadores')
+    const cargarOperadores = async (mostrarCarga = true) => {
+        if (mostrarCarga) setLoading(true)
         try {
-            const res = await fetch('/api/operadores', { cache: 'no-store' })
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            const data = await res.json()
-            if (esUltimaSolicitud() && data.success) {
-                setOperadores(data.usuarios)
-            }
+            await operadoresPagina.reload()
         } catch (error) {
             console.error("Error al cargar operadores:", error)
         } finally {
-            if (esUltimaSolicitud()) {
+            if (mostrarCarga) {
                 setLoading(false)
             }
         }
     }
-
-    useEffect(() => {
-        cargarOperadores()
-    }, [])
 
     const handleHabilitarOperador = async (id: number) => {
         try {
@@ -75,25 +69,19 @@ export default function OperadoresPage() {
     }
 
     const cargarOrdenes = async (mostrarCarga = true) => {
-        const esUltimaSolicitud = isLatestRequest('asignaciones')
         if (mostrarCarga) setLoading(true)
         try {
-            const res = await fetch('/api/admin_costura/asignadas', { cache: 'no-store' })
-            if (!res.ok) throw new Error(`HTTP ${res.status}`)
-            const data = await res.json()
-            if (esUltimaSolicitud() && data.success) {
-                setAsignadas(data.asignadas)
-            }
+            await asignadasPagina.reload()
         } catch (error) {
             console.error("Error al cargar órdenes:", error)
         } finally {
-            if (mostrarCarga && esUltimaSolicitud()) setLoading(false)
+            if (mostrarCarga) setLoading(false)
         }
     }
 
     useEffect(() => {
         const iniciar = async () => {
-            cargarOperadores()
+            const cargaOperadores = cargarOperadores(false)
             try {
                 const res = await fetch('/api/admin_costura/auto_asignar', { method: 'POST' })
                 const data = await res.json()
@@ -103,7 +91,8 @@ export default function OperadoresPage() {
             } catch (error) {
                 console.error("Error al ejecutar la auto-asignación:", error)
             }
-            await cargarOrdenes(false)
+            await Promise.all([cargaOperadores, cargarOrdenes(false)])
+            setLoading(false)
         }
         void iniciar()
     }, [])
@@ -128,7 +117,7 @@ export default function OperadoresPage() {
     }, [asignadas])
 
     if (loading) {
-        return <div className="text-center py-10 text-gray-400 text-sm">Cargando operadores...</div>
+        return <SewingLoader message="Cargando operadores" compact />
     }
 
     const ahora = new Date()
@@ -167,6 +156,23 @@ export default function OperadoresPage() {
                     )
                 })}
             </div>
+
+            {(operadoresPagina.hasMore || asignadasPagina.hasMore) && (
+                <div className="flex flex-wrap justify-center gap-3">
+                    {operadoresPagina.hasMore && (
+                        <button type="button" onClick={operadoresPagina.loadMore} disabled={operadoresPagina.loadingMore} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60">
+                            {operadoresPagina.loadingMore && <Icon icon="mdi:sewing-machine" className="animate-pulse text-base text-blue-600" />}
+                            {operadoresPagina.loadingMore ? 'Cargando operadores…' : 'Cargar siguientes 50 operadores'}
+                        </button>
+                    )}
+                    {asignadasPagina.hasMore && (
+                        <button type="button" onClick={asignadasPagina.loadMore} disabled={asignadasPagina.loadingMore} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60">
+                            {asignadasPagina.loadingMore && <Icon icon="mdi:sewing-machine" className="animate-pulse text-base text-blue-600" />}
+                            {asignadasPagina.loadingMore ? 'Cargando asignaciones…' : 'Cargar siguientes 50 asignaciones'}
+                        </button>
+                    )}
+                </div>
+            )}
 
             {operadores.length === 0 && (
                 <div className="text-center py-12 text-gray-400 text-sm">

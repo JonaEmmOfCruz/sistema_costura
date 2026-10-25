@@ -2,12 +2,14 @@ import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { RowDataPacket } from "mysql2";
 import { tiempoCosturaPorPrefijoSql } from "@/lib/productosTiempos";
+import { pageMetadata, pageRows, readPageParams } from "@/lib/pagination";
 
 // Evita que Next.js guarde en caché las respuestas GET
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { page, pageSize, offset } = readPageParams(request)
         const [rows] = await pool.query<RowDataPacket[]>(`
             SELECT
                 MAX(t.id) AS id,
@@ -33,11 +35,13 @@ export async function GET() {
             LEFT JOIN usuarios u ON t.id_operador = u.id
             GROUP BY t.id_operador, t.op, t.producto
             ORDER BY MAX(t.id) DESC
-        `);
+            LIMIT ? OFFSET ?
+        `, [pageSize + 1, offset]);
 
         return NextResponse.json({
             success: true,
-            tiempos: rows
+            tiempos: pageRows(rows, pageSize),
+            pagination: pageMetadata(page, pageSize, rows.length)
         });
     } catch (error) {
         console.error('Error al obtener los tiempos de costura', error);

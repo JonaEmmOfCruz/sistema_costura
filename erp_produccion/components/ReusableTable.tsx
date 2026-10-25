@@ -14,13 +14,19 @@ interface ReusableTableProps<T> {
     columns: Column<T>[];
     searchField?: keyof T | string | boolean; // Mantenemos la prop para no romper otras vistas
     searchPlaceholder?: string;
+    loadingMore?: boolean;
+    hasMore?: boolean;
+    onLoadMore?: () => void;
 }
 
 export default function ReusableTable<T extends Record<string, any>>({
     data = [], 
     columns,
     searchField,
-    searchPlaceholder = "Buscar en toda la tabla..."
+    searchPlaceholder = "Buscar en toda la tabla...",
+    loadingMore = false,
+    hasMore = false,
+    onLoadMore,
 }: ReusableTableProps<T>) {
     const [searchTerm, setSearchTerm] = useState("")
     const [currentPage, setCurrentPage] = useState(1)
@@ -133,7 +139,7 @@ export default function ReusableTable<T extends Record<string, any>>({
             {/* Paginador Inferior */}
             <div className="p-4 sm:p-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-500">
                 <div>
-                    Mostrando <span className="font-semibold text-gray-700">{filteredData.length > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0}</span> a <span className="font-semibold text-gray-700">{Math.min(currentPage * rowsPerPage, filteredData.length)}</span> de <span className="font-semibold text-gray-700">{filteredData.length}</span> resultados
+                    Mostrando <span className="font-semibold text-gray-700">{filteredData.length > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0}</span> a <span className="font-semibold text-gray-700">{Math.min(currentPage * rowsPerPage, filteredData.length)}</span> de <span className="font-semibold text-gray-700">{filteredData.length}</span> resultados cargados
                 </div>
 
                 <div className="flex items-center gap-1.5">
@@ -158,6 +164,19 @@ export default function ReusableTable<T extends Record<string, any>>({
                     </button>
                 </div>
             </div>
+            {hasMore && onLoadMore && (
+                <div className="flex justify-center border-t border-gray-100 px-4 py-3">
+                    <button
+                        type="button"
+                        onClick={onLoadMore}
+                        disabled={loadingMore}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+                    >
+                        {loadingMore && <Icon icon="mdi:sewing-machine" className="sewing-loader-machine-icon animate-pulse text-base text-blue-600" />}
+                        {loadingMore ? 'Cargando más registros…' : 'Cargar siguientes 50 registros'}
+                    </button>
+                </div>
+            )}
         </div>
     )
 }

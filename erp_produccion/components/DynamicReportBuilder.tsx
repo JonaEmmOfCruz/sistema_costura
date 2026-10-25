@@ -5,6 +5,7 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tool
 import { Icon } from '@iconify/react'
 import useRealtimeRefresh from '@/lib/useRealtimeRefresh'
 import useLatestRequest from '@/lib/useLatestRequest'
+import SewingLoader from '@/components/SewingLoader'
 
 const BI_COLORS = ['#118DFF', '#12239E', '#E66C37', '#6B007B', '#E044A7', '#744EC2', '#D9B300', '#D64550']
 
@@ -138,12 +139,7 @@ export default function DynamicReportBuilder() {
     }, [fechaInicio, fechaFin])
 
     if (!esquemaBD) {
-        return (
-            <div className="flex h-96 items-center justify-center bg-white rounded-2xl border border-gray-100 shadow-sm text-gray-500 gap-3">
-                <Icon icon="lucide:loader-2" className="animate-spin text-2xl text-blue-500" />
-                Iniciando motor de Inteligencia de Negocios...
-            </div>
-        )
+        return <SewingLoader message="Iniciando el generador de reportes" />
     }
 
     const config = esquemaBD[temaSeleccionado]

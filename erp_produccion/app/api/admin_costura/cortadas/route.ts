@@ -2,9 +2,11 @@ import { pool } from "@/lib/db";
 import { NextResponse } from "next/server";
 import { RowDataPacket } from "mysql2";
 import { tiempoCosturaPorPrefijoSql } from "@/lib/productosTiempos";
+import { pageMetadata, pageRows, readPageParams } from "@/lib/pagination";
 export const dynamic = 'force-dynamic';
-export async function GET() {
+export async function GET(request: Request) {
     try {
+        const { page, pageSize, offset } = readPageParams(request)
         const [rows] = await pool.query<RowDataPacket[]>(`
             SELECT 
                 c.*,
@@ -24,11 +26,13 @@ export async function GET() {
                 GROUP BY orden_id
             ) a ON COALESCE(c.orden_id, c.id) = a.orden_id -- JOIN MÁS SEGURO POR ID
             ORDER BY c.id DESC
-        `)
+            LIMIT ? OFFSET ?
+        `, [pageSize + 1, offset])
 
         return NextResponse.json({
             success: true,
-            ordenes: rows
+            ordenes: pageRows(rows, pageSize),
+            pagination: pageMetadata(page, pageSize, rows.length)
         })
     } catch (error) {
         console.error('Error al obtener las ordenes cortadas', error)
