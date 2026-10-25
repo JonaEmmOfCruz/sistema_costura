@@ -46,6 +46,8 @@ Para generar el sitio estático de documentación:
 pnpm build-storybook
 ```
 
+El repositorio también incluye el workflow `/.github/workflows/deploy-storybook.yml`, que compila y publica Storybook en GitHub Pages al actualizar `main`. Para habilitar la primera publicación, abre **Settings → Pages** en el repositorio y selecciona **GitHub Actions** como fuente. Después de que termine el workflow, la dirección será `https://jonaemmofcruz.github.io/sistema_costura/`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
