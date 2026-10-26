@@ -70,7 +70,7 @@ La tabla indica qué Route Handlers alimentan cada página y cuál es su respons
 | `app/admin/page.tsx` (`/admin`) | `GET /api/me`; `GET /api/admin/analisis`; `GET /api/reportes/esquema`; `POST /api/reportes/dinamicos`; según widgets, `GET /api/usuarios/stats` | Valida sesión y consulta agregados/reportes del panel. |
 | `app/admin/usuarios/page.tsx` (`/admin/usuarios`) | `GET /api/usuarios`; `POST /api/usuarios/registrar`; `PUT /api/usuarios`; `DELETE /api/usuarios?id=` | Lista, crea, actualiza y elimina cuentas. La tabla de identidad es `usuarios`; el acceso/sesión utiliza `sesiones`. |
 | `app/admin/subir_ordenes/page.tsx` (`/admin/subir_ordenes`) | `GET /api/ordenes`; `POST /api/ordenes/subir`; `GET /api/costura-asignaciones`; `GET /api/costura-cortes`; `GET /api/costura-tiempos` | Importa órdenes y consulta listas paginadas para tabla e historial. Escribe órdenes generales y órdenes operativas de costura. |
-| `app/admin/subir_tiempos/page.tsx` (`/admin/subir_tiempos`) | `GET /api/productos/tiempos`; `POST/PUT/DELETE /api/productos/crud`; `POST /api/productos/subir-tiempos`; `GET/POST /api/productos/peticiones`; `GET /api/productos/buscar_modelo`; `POST /api/productos/peticiones/aprobar`; `POST /api/productos/peticiones/rechazar` | Gestiona el catálogo `productos_tiempos` y `peticiones_tiempos`. Las métricas `t_*` se guardan como segundos; la búsqueda por código pagina resultados. |
+| `app/admin/subir_tiempos/page.tsx` (`/admin/subir_tiempos`) | `GET /api/productos/tiempos`; `POST/PUT/DELETE /api/productos/crud`; `POST /api/productos/subir-tiempos`; `GET/POST /api/productos/peticiones`; `GET /api/productos/buscar_modelo`; `POST /api/productos/peticiones/aprobar`; `POST /api/productos/peticiones/rechazar` | Gestiona el catálogo `productos_tiempos` y `peticiones_tiempos`. Las métricas `t_*` se guardan como segundos; los filtros y la búsqueda por código consultan toda la tabla antes de paginar los resultados. |
 | `app/admin/subir_manuales/page.tsx` (`/admin/subir_manuales`) | `GET /api/manuales`; `POST /api/manuales/subir` | Consulta y registra `manuales_produccion`; el archivo físico queda en almacenamiento de la aplicación. |
 | `app/admin/exportar/page.tsx` (`/admin/exportar`) | `GET /api/admin/exportar` | Valida sesión y filtros, consulta resumen y produce descargas de conjuntos disponibles. |
 
@@ -289,7 +289,7 @@ Al desarrollar un endpoint paginado:
 
 ## 9. Importación del catálogo de tiempos
 
-La ruta `app/api/productos/subir-tiempos/route.ts` lee la primera hoja con SheetJS, normaliza los encabezados sin distinguir mayúsculas y acepta `CODIGO` como alias de `cod_proceso`. Ignora `id`; `id_proceso` también es opcional para la hoja.
+La ruta `app/api/productos/subir-tiempos/route.ts` lee la primera hoja con SheetJS y normaliza los encabezados sin distinguir mayúsculas, acentos, espacios, guiones bajos ni guiones. Acepta `CODIGO` como alias de `cod_proceso`, `TIEMPO COSTURA` como alias de `t_costura`, `TIEMPO TOTAL` como alias de `tiempo_total_costura` y `nombre_secundario` o `nombre` como alias de `descripcion` cuando no hay una columna `descripcion`. Ignora `id`; `id_proceso` también es opcional para la hoja.
 
 ### Esquema completo
 
@@ -301,7 +301,7 @@ montado,t_montado,empaque,t_empaque,corte,t_corte
 
 `CODIGO` se escribe en la columna única `cod_proceso`. `modelo`, `nombre`, `linea`, `descripcion` y las columnas operativas se escriben en sus columnas homónimas. `tiempo_total_costura` se importa como valor independiente; no se calcula a partir de los campos `t_*`.
 
-SheetJS transforma celdas vacías en `NULL`. El upsert escribe esos `NULL` en la base de datos, incluso al reemplazar un producto existente; así se puede vaciar un dato al importar. Si hay varias filas con el mismo código dentro del archivo, prevalece la última fila. Las filas sin código se omiten. El guardado se realiza en lotes de hasta 200 registros dentro de una transacción.
+SheetJS transforma celdas vacías en `NULL`. El upsert escribe esos `NULL` en la base de datos, incluso al reemplazar un producto existente; así se puede vaciar un dato al importar. Si hay varias filas con el mismo código dentro del archivo, prevalece la última fila y la respuesta informa cuántas filas repetidas se consolidaron; el índice único impide guardar más de una fila por código. Las filas sin código se omiten y se reportan. El guardado se realiza en lotes de hasta 200 registros dentro de una transacción.
 
 ### Esquema compacto heredado
 

@@ -48,12 +48,21 @@ const columnasProducto = [
     't_corte'
 ] as const
 
-const columnasRequeridas = columnasProducto.filter(columna =>
-    columna !== 'id_proceso' && columna !== 'modelo' && columna !== 'nombre' && columna !== 'linea' && columna !== 'tiempo_total_costura'
-)
+const aliasEncabezados: Partial<Record<(typeof columnasProducto)[number], string[]>> = {
+    cod_proceso: ['codigo'],
+    descripcion: ['nombre secundario', 'nombre'],
+    t_costura: ['tiempo costura', 'tiempo', 'tiempo de costura'],
+    tiempo_total_costura: ['tiempo total']
+}
 
 const normalizarEncabezado = (valor: unknown) =>
-    String(valor ?? '').trim().toLocaleLowerCase('es-MX')
+    String(valor ?? '')
+        .trim()
+        .toLocaleLowerCase('es-MX')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
 
 const textoCelda = (valor: unknown) => {
     const texto = String(valor ?? '').trim()
@@ -150,90 +159,57 @@ export async function POST(request: Request) {
         })
         const encabezados = (filas[0] || []).map(normalizarEncabezado)
         const indices = new Map(encabezados.map((encabezado, posicion) => [encabezado, posicion]))
-        if (!indices.has('cod_proceso') && indices.has('codigo')) indices.set('cod_proceso', indices.get('codigo')!)
-        if (!indices.has('descripcion') && indices.has('nombre')) indices.set('descripcion', indices.get('nombre')!)
-        const esFormatoProductos = columnasRequeridas.every(columna => indices.has(columna))
+        const indicesColumnas = new Map<(typeof columnasProducto)[number], number>()
+        for (const columna of columnasProducto) {
+            const nombresAceptados = [
+                normalizarEncabezado(columna),
+                ...(aliasEncabezados[columna] || [])
+            ]
+            const indice = nombresAceptados
+                .map(normalizarEncabezado)
+                .map(nombre => indices.get(nombre))
+                .find(indice => indice !== undefined)
+
+            if (indice !== undefined) indicesColumnas.set(columna, indice)
+        }
+        const leerCelda = (fila: unknown[], columna: (typeof columnasProducto)[number]) => {
+            const indice = indicesColumnas.get(columna)
+            return indice === undefined ? null : fila[indice]
+        }
         const productosPorCodigo = new Map<string, ProductoTiempoImportado>()
         let filasOmitidas = 0
         let codigosConsolidados = 0
 
-        if (esFormatoProductos) {
-            for (const fila of filas.slice(1)) {
-                const codigo = textoCelda(fila[indices.get('cod_proceso')!])
-                if (!codigo) {
-                    filasOmitidas++
-                    continue
-                }
-
-                const producto: ProductoTiempoImportado = {
-                    id_proceso: indices.has('id_proceso') ? numeroCelda(fila[indices.get('id_proceso')!]) : null,
-                    cod_proceso: codigo,
-                    modelo: indices.has('modelo') ? textoCelda(fila[indices.get('modelo')!]) : null,
-                    nombre: indices.has('nombre') ? textoCelda(fila[indices.get('nombre')!]) : null,
-                    descripcion: textoCelda(fila[indices.get('descripcion')!]),
-                    linea: indices.has('linea') ? textoCelda(fila[indices.get('linea')!]) : null,
-                    costura: textoCelda(fila[indices.get('costura')!]),
-                    t_costura: numeroCelda(fila[indices.get('t_costura')!]),
-                    tiempo_total_costura: numeroCelda(fila[indices.get('tiempo_total_costura')!]),
-                    tapizado: textoCelda(fila[indices.get('tapizado')!]),
-                    t_tapizado: numeroCelda(fila[indices.get('t_tapizado')!]),
-                    armado: textoCelda(fila[indices.get('armado')!]),
-                    t_armado: numeroCelda(fila[indices.get('t_armado')!]),
-                    montado: textoCelda(fila[indices.get('montado')!]),
-                    t_montado: numeroCelda(fila[indices.get('t_montado')!]),
-                    empaque: textoCelda(fila[indices.get('empaque')!]),
-                    t_empaque: numeroCelda(fila[indices.get('t_empaque')!]),
-                    corte: textoCelda(fila[indices.get('corte')!]),
-                    t_corte: numeroCelda(fila[indices.get('t_corte')!])
-                }
-                const existente = productosPorCodigo.get(codigo)
-
-                if (existente) {
-                    // Si el archivo repite un código, prevalece la última fila, incluidos sus campos vacíos.
-                    productosPorCodigo.set(codigo, producto)
-                    codigosConsolidados++
-                } else {
-                    productosPorCodigo.set(codigo, producto)
-                }
+        for (const fila of filas.slice(1)) {
+            const codigo = textoCelda(leerCelda(fila, 'cod_proceso'))
+            if (!codigo) {
+                filasOmitidas++
+                continue
             }
-        } else {
-            const registros = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
 
-            for (const registro of registros) {
-                const valores = new Map(
-                    Object.entries(registro).map(([clave, valor]) => [normalizarEncabezado(clave), valor])
-                )
-                const codigo = textoCelda(valores.get('codigo')) || textoCelda(valores.get('cod_proceso'))
-
-                if (!codigo) {
-                    filasOmitidas++
-                    continue
-                }
-
-                const tCostura = numeroCelda(valores.get('t_costura')) ?? numeroCelda(valores.get('tiempo'))
-                const producto: ProductoTiempoImportado = {
-                    id_proceso: null,
-                    cod_proceso: codigo,
-                    modelo: textoCelda(valores.get('modelo')),
-                    nombre: textoCelda(valores.get('nombre')),
-                    descripcion: textoCelda(valores.get('nombre_secundario')) || textoCelda(valores.get('descripcion')),
-                    linea: textoCelda(valores.get('linea')),
-                    costura: textoCelda(valores.get('costura')),
-                    t_costura: tCostura,
-                    tiempo_total_costura: numeroCelda(valores.get('tiempo_total_costura')),
-                    tapizado: null,
-                    t_tapizado: null,
-                    armado: null,
-                    t_armado: null,
-                    montado: null,
-                    t_montado: null,
-                    empaque: null,
-                    t_empaque: null,
-                    corte: null,
-                    t_corte: null
-                }
-                productosPorCodigo.set(codigo, producto)
+            const producto: ProductoTiempoImportado = {
+                id_proceso: numeroCelda(leerCelda(fila, 'id_proceso')),
+                cod_proceso: codigo,
+                modelo: textoCelda(leerCelda(fila, 'modelo')),
+                nombre: textoCelda(leerCelda(fila, 'nombre')),
+                descripcion: textoCelda(leerCelda(fila, 'descripcion')),
+                linea: textoCelda(leerCelda(fila, 'linea')),
+                costura: textoCelda(leerCelda(fila, 'costura')),
+                t_costura: numeroCelda(leerCelda(fila, 't_costura')),
+                tiempo_total_costura: numeroCelda(leerCelda(fila, 'tiempo_total_costura')),
+                tapizado: textoCelda(leerCelda(fila, 'tapizado')),
+                t_tapizado: numeroCelda(leerCelda(fila, 't_tapizado')),
+                armado: textoCelda(leerCelda(fila, 'armado')),
+                t_armado: numeroCelda(leerCelda(fila, 't_armado')),
+                montado: textoCelda(leerCelda(fila, 'montado')),
+                t_montado: numeroCelda(leerCelda(fila, 't_montado')),
+                empaque: textoCelda(leerCelda(fila, 'empaque')),
+                t_empaque: numeroCelda(leerCelda(fila, 't_empaque')),
+                corte: textoCelda(leerCelda(fila, 'corte')),
+                t_corte: numeroCelda(leerCelda(fila, 't_corte'))
             }
+            if (productosPorCodigo.has(codigo)) codigosConsolidados++
+            productosPorCodigo.set(codigo, producto)
         }
 
         const productos = [...productosPorCodigo.values()]
@@ -248,7 +224,7 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
             success: true,
-            message: `Archivo procesado. Se registraron o actualizaron ${productos.length} productos; se omitieron ${filasOmitidas} filas sin código y se consolidaron ${codigosConsolidados} códigos repetidos.`,
+            message: `Archivo procesado. Se registraron o actualizaron ${productos.length} productos; se omitieron ${filasOmitidas} filas sin código y se consolidaron ${codigosConsolidados} filas con código repetido.`,
             productosProcesados: productos.length,
             filasOmitidas,
             codigosConsolidados

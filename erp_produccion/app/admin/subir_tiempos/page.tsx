@@ -58,7 +58,21 @@ export default function SubirTiemposProductosPage() {
     const [file, setFile] = useState<File | null>(null)
     const [loading, setLoading] = useState(false)
     const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-    const { data: productos, setData: setProductos, loading: loadingProductos, loadingMore, hasMore, loadMore, reload: cargarProductos } = usePaginatedApi<ProductoTiempo>('/api/productos/tiempos', 'productos')
+    const [columnFilters, setColumnFilters] = useState<{ [key: string]: string[] }>({})
+    const [busquedaCatalogo, setBusquedaCatalogo] = useState('')
+    const [busquedaAplicada, setBusquedaAplicada] = useState('')
+    const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
+    const [loadingFilterOptions, setLoadingFilterOptions] = useState<string | null>(null)
+    const [filterOptionsError, setFilterOptionsError] = useState<string | null>(null)
+    const [filterOptionSearch, setFilterOptionSearch] = useState('')
+    const endpointProductos = useMemo(() => {
+        const searchParams = new URLSearchParams()
+        if (Object.keys(columnFilters).length) searchParams.set('filters', JSON.stringify(columnFilters))
+        if (busquedaAplicada.trim()) searchParams.set('search', busquedaAplicada.trim())
+        const query = searchParams.toString()
+        return `/api/productos/tiempos${query ? `?${query}` : ''}`
+    }, [columnFilters, busquedaAplicada])
+    const { data: productos, setData: setProductos, loading: loadingProductos, loadingMore, hasMore, loadMore, reload: cargarProductos } = usePaginatedApi<ProductoTiempo>(endpointProductos, 'productos')
 
     // Estado para la lista de peticiones de la BD
     const { data: peticiones, loading: loadingPeticiones, loadingMore: loadingMorePeticiones, hasMore: hasMorePeticiones, loadMore: loadMorePeticiones, reload: cargarPeticiones } = usePaginatedApi<PeticionTiempo>('/api/productos/peticiones?history=1', 'peticiones')
@@ -76,14 +90,17 @@ export default function SubirTiemposProductosPage() {
     })
 
     // Filtros de tabla
-    const [columnFilters, setColumnFilters] = useState<{ [key: string]: string[] }>({})
     const [activeFilterField, setActiveFilterField] = useState<string | null>(null)
     const isLatestRequest = useLatestRequest()
     const [borradoresProductos, setBorradoresProductos] = useState<Record<number, Record<string, string>>>({})
     const [nuevoProducto, setNuevoProducto] = useState<Record<string, string>>(productoVacio)
     const [guardandoProducto, setGuardandoProducto] = useState(false)
-    const [busquedaCatalogo, setBusquedaCatalogo] = useState('')
     const [estadoCatalogo, setEstadoCatalogo] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setBusquedaAplicada(busquedaCatalogo), 300)
+        return () => window.clearTimeout(timeout)
+    }, [busquedaCatalogo])
 
     const actualizarCelda = (producto: ProductoTiempo, campo: string, valor: string) => {
         if (producto.id === null || producto.id === undefined) return
@@ -378,14 +395,31 @@ export default function SubirTiemposProductosPage() {
         })
     }
 
+    const cargarOpcionesFiltro = async (fieldKey: string) => {
+        setLoadingFilterOptions(fieldKey)
+        setFilterOptionsError(null)
+        try {
+            const response = await fetch(`/api/productos/tiempos?filterField=${encodeURIComponent(fieldKey)}`, { cache: 'no-store' })
+            const result = await response.json()
+            if (!response.ok || !result.success || !Array.isArray(result.values)) {
+                throw new Error(result.message || 'No se pudieron cargar las opciones del filtro.')
+            }
+            setFilterOptions(current => ({ ...current, [fieldKey]: result.values.map(String) }))
+        } catch (error) {
+            setFilterOptionsError(error instanceof Error ? error.message : 'No se pudieron cargar las opciones del filtro.')
+        } finally {
+            setLoadingFilterOptions(current => current === fieldKey ? null : current)
+        }
+    }
+
     const FilterHeaderModal = ({ title, fieldKey }: { title: string, fieldKey: string }) => {
         const isModalOpen = activeFilterField === fieldKey
         const selectedOptions = columnFilters[fieldKey] || []
         const isFiltered = selectedOptions.length > 0
-
-        const uniqueValues = Array.from(
-            new Set(productos.map(item => String(item[fieldKey] ?? '-')))
-        ).sort()
+        const uniqueValues = filterOptions[fieldKey] || []
+        const search = filterOptionSearch.trim().toLocaleLowerCase()
+        const matchingValues = uniqueValues.filter(value => value.toLocaleLowerCase().includes(search))
+        const visibleValues = matchingValues.slice(0, 200)
 
         return (
             <div className="relative flex items-center justify-between gap-1.5 select-none">
@@ -394,7 +428,13 @@ export default function SubirTiemposProductosPage() {
                     type="button"
                     onClick={(e) => {
                         e.stopPropagation()
-                        setActiveFilterField(isModalOpen ? null : fieldKey)
+                        if (isModalOpen) {
+                            setActiveFilterField(null)
+                        } else {
+                            setActiveFilterField(fieldKey)
+                            setFilterOptionSearch('')
+                            void cargarOpcionesFiltro(fieldKey)
+                        }
                     }}
                     className={`p-1 rounded-md transition-colors ${
                         isFiltered 
@@ -428,29 +468,47 @@ export default function SubirTiemposProductosPage() {
                                 </button>
                             </div>
 
-                            <div className="max-h-56 overflow-y-auto space-y-1 pr-1 text-xs">
-                                {uniqueValues.map((val) => {
-                                    const checked = selectedOptions.includes(val)
-                                    return (
-                                        <div
-                                            key={`${fieldKey}-${val}`}
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                toggleFilterOption(fieldKey, val)
-                                            }}
-                                            className="flex items-center gap-2 p-1.5 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors text-slate-700 select-none"
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                checked={checked}
-                                                readOnly
-                                                className="rounded border-gray-300 text-rose-600 focus:ring-0 w-3.5 h-3.5 pointer-events-none"
-                                            />
-                                            <span className="truncate">{val}</span>
-                                        </div>
-                                    )
-                                })}
-                            </div>
+                            <input
+                                type="search"
+                                value={filterOptionSearch}
+                                onChange={event => setFilterOptionSearch(event.target.value)}
+                                placeholder={`Buscar ${title.toLocaleLowerCase()}...`}
+                                className="mb-2 w-full rounded-lg border border-gray-200 px-2.5 py-2 text-xs text-gray-700 outline-none focus:border-indigo-400"
+                            />
+                            {loadingFilterOptions === fieldKey ? (
+                                <p className="py-4 text-center text-xs text-slate-500">Cargando opciones de la base de datos...</p>
+                            ) : filterOptionsError ? (
+                                <div className="py-3 text-xs text-rose-600">
+                                    <p>{filterOptionsError}</p>
+                                    <button type="button" onClick={() => void cargarOpcionesFiltro(fieldKey)} className="mt-2 font-semibold underline">Reintentar</button>
+                                </div>
+                            ) : (
+                                <div className="max-h-56 overflow-y-auto space-y-1 pr-1 text-xs">
+                                    {visibleValues.map((val) => {
+                                        const checked = selectedOptions.includes(val)
+                                        return (
+                                            <div
+                                                key={`${fieldKey}-${val}`}
+                                                onClick={(e) => {
+                                                    e.preventDefault()
+                                                    toggleFilterOption(fieldKey, val)
+                                                }}
+                                                className="flex items-center gap-2 p-1.5 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors text-slate-700 select-none"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    readOnly
+                                                    className="rounded border-gray-300 text-rose-600 focus:ring-0 w-3.5 h-3.5 pointer-events-none"
+                                                />
+                                                <span className="truncate">{val}</span>
+                                            </div>
+                                        )
+                                    })}
+                                    {!visibleValues.length && <p className="py-3 text-center text-slate-500">No hay valores que coincidan.</p>}
+                                    {matchingValues.length > visibleValues.length && <p className="sticky bottom-0 bg-white py-2 text-center text-slate-500">Mostrando 200 de {matchingValues.length}. Escribe para acotar los resultados.</p>}
+                                </div>
+                            )}
 
                             {isFiltered && (
                                 <div className="pt-2 mt-2 border-t border-gray-100 flex justify-end">
@@ -471,18 +529,7 @@ export default function SubirTiemposProductosPage() {
         )
     }
 
-    const productosFiltrados = productos.filter(row => {
-        const normalizarCodigoBusqueda = (codigo: unknown) =>
-            String(codigo ?? '').trim().replace(/^['"]|['"]$/g, '').trim().toLocaleLowerCase()
-        const termino = normalizarCodigoBusqueda(busquedaCatalogo)
-        const coincideBusqueda = !termino || normalizarCodigoBusqueda(row.cod_proceso).includes(termino)
-        return coincideBusqueda && Object.keys(columnFilters).every(fieldKey => {
-            const allowedValues = columnFilters[fieldKey]
-            if (!allowedValues || allowedValues.length === 0) return true
-            const rowValue = String(row[fieldKey] ?? '-')
-            return allowedValues.includes(rowValue)
-        })
-    })
+    const productosFiltrados = productos
 
     return (
         <div className="mx-auto space-y-8 p-6">
