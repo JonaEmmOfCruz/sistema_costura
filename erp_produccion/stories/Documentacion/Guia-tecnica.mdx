@@ -128,7 +128,7 @@ La tabla indica qué Route Handlers alimentan cada página y cuál es su respons
 
 | Página | Route Handlers relacionados | Uso y datos principales |
 | --- | --- | --- |
-| `app/operador/page.tsx` (`/operador`) | `GET /api/me`; `GET /api/operador/asignaciones?id_operador=`; `POST /api/operador/costura/iniciar`; `POST /api/costura-tiempos/terminar`; `GET /api/manuales?codigo=` | Muestra asignaciones, manual y cronómetro. Las sesiones se persisten en `operador_tiempos_costura`; el tiempo real se almacena en segundos. El estándar de `productos_tiempos` se presenta aparte para referencia. |
+| `app/operador/page.tsx` (`/operador`) | `GET /api/me`; `GET /api/operador/asignaciones?id_operador=`; `POST /api/operador/costura/iniciar`; `POST /api/costura-tiempos/terminar`; `GET /api/manuales?codigo=` | Muestra asignaciones, manual y cronómetro. El tiempo sugerido usa `t_costura` de `productos_tiempos` para el prefijo de siete caracteres del producto y lo multiplica por la cantidad asignada; el cronómetro real se persiste en `operador_tiempos_costura` en segundos. |
 
 ### Route Handlers compartidos y auxiliares
 

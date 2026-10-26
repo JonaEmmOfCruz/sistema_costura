@@ -12,6 +12,17 @@ function formatTiempo(seg: number) {
     return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`
 }
 
+function tiempoSugeridoSegundos(asignacion: {
+    tiempo_base?: number | string | null
+    cantidad_asignada?: number | string | null
+}) {
+    const tiempoBase = Number(asignacion.tiempo_base)
+    const cantidad = Number(asignacion.cantidad_asignada)
+    return Number.isFinite(tiempoBase) && tiempoBase > 0 && Number.isFinite(cantidad) && cantidad > 0
+        ? Math.floor(tiempoBase * cantidad)
+        : 0
+}
+
 function TiempoCostura({
     segundosServidor,
     activo,
@@ -337,6 +348,7 @@ export default function OperadorPage() {
     const partesProducto = textoProducto.split('-')
     const codigoSegundoString = partesProducto.length >= 2 ? partesProducto[1].trim() : textoProducto.trim()
     const asignacionEsPrioritaria = asignacion ? esOrdenPrioritaria(asignacion) : false
+    const tiempoSugeridoActivo = asignacion ? tiempoSugeridoSegundos(asignacion) : 0
 
     return (
         <div className="min-h-[calc(100vh-4rem)] w-full box-border bg-slate-100 px-3 py-4 sm:px-6">
@@ -411,9 +423,9 @@ export default function OperadorPage() {
                                 </div>
                                 <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-center text-slate-800 sm:min-w-[150px]">
                                     <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-indigo-600">Tiempo sugerido</p>
-                                    <p className={`mt-0.5 font-mono font-bold leading-none tabular-nums text-indigo-950 ${Number(asignacion.tiempo_sugerido_segundos) > 0 ? 'text-xl sm:text-2xl' : 'text-xs'}`}>
-                                        {Number(asignacion.tiempo_sugerido_segundos) > 0
-                                            ? formatTiempo(Number(asignacion.tiempo_sugerido_segundos))
+                                    <p className={`mt-0.5 font-mono font-bold leading-none tabular-nums text-indigo-950 ${tiempoSugeridoActivo > 0 ? 'text-xl sm:text-2xl' : 'text-xs'}`}>
+                                        {tiempoSugeridoActivo > 0
+                                            ? formatTiempo(tiempoSugeridoActivo)
                                             : 'Sin métrica'}
                                     </p>
                                 </div>
@@ -476,7 +488,9 @@ export default function OperadorPage() {
 
                 {asignacionesBloqueadas.length > 0 && (
                     <section aria-label="Órdenes pausadas" className="space-y-2">
-                        {asignacionesBloqueadas.map((bloqueada) => (
+                        {asignacionesBloqueadas.map((bloqueada) => {
+                            const tiempoSugerido = tiempoSugeridoSegundos(bloqueada)
+                            return (
                             <article key={bloqueada.id} className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-3 sm:px-4">
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="flex min-w-0 items-center gap-3">
@@ -495,8 +509,8 @@ export default function OperadorPage() {
                                         <div className="text-right">
                                             <p className="text-[9px] font-bold uppercase tracking-wider text-indigo-600">Sugerido</p>
                                             <p className="font-mono text-sm font-bold tabular-nums text-indigo-950">
-                                                {Number(bloqueada.tiempo_sugerido_segundos) > 0
-                                                    ? formatTiempo(Number(bloqueada.tiempo_sugerido_segundos))
+                                                {tiempoSugerido > 0
+                                                    ? formatTiempo(tiempoSugerido)
                                                     : 'Sin métrica'}
                                             </p>
                                         </div>
@@ -509,7 +523,8 @@ export default function OperadorPage() {
                                     </div>
                                 </div>
                             </article>
-                        ))}
+                            )
+                        })}
                     </section>
                 )}
 
