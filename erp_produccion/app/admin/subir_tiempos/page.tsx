@@ -128,7 +128,13 @@ export default function SubirTiemposProductosPage() {
                 setProductos(current => current.map(row => Number(row.id) === id ? productoActualizado || { ...row, ...producto } : row))
             }
             if (Object.prototype.hasOwnProperty.call(producto, 'cod_proceso')) {
-                setBusquedaCatalogo(String(productoActualizado?.cod_proceso ?? producto.cod_proceso ?? ''))
+                const terminoActual = busquedaCatalogo.trim().toLocaleLowerCase()
+                const codigoGuardado = String(productoActualizado?.cod_proceso ?? producto.cod_proceso ?? '')
+                    .trim()
+                    .replace(/^['"]|['"]$/g, '')
+                    .trim()
+                    .toLocaleLowerCase()
+                if (terminoActual && !codigoGuardado.includes(terminoActual)) setBusquedaCatalogo('')
                 setColumnFilters(current => {
                     const next = { ...current }
                     delete next.cod_proceso
