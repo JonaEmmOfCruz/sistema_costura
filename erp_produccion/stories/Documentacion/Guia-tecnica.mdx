@@ -150,7 +150,7 @@ El inventario completo de cada `route.ts`, con método, parámetros y efecto, ap
 
 | Tabla | Campos utilizados por este flujo | Uso |
 | --- | --- | --- |
-| `productos_tiempos` | `id`, `id_proceso`, `cod_proceso`, `descripcion`, `costura`, `t_costura`, `tapizado`, `t_tapizado`, `armado`, `t_armado`, `montado`, `t_montado`, `empaque`, `t_empaque`, `corte`, `t_corte`, `fecha_actualizacion` | Catálogo de productos, procesos y estándares. Los campos `t_*` son segundos. |
+| `productos_tiempos` | `id`, `id_proceso`, `cod_proceso`, `modelo`, `nombre`, `linea`, `descripcion`, `costura`, `t_costura`, `tiempo_total_costura`, `tapizado`, `t_tapizado`, `armado`, `t_armado`, `montado`, `t_montado`, `empaque`, `t_empaque`, `corte`, `t_corte`, `fecha_actualizacion` | Catálogo de productos y métricas. `CODIGO` del Excel se asigna a `cod_proceso`; `id` es interno y no se muestra en la tabla editable. `t_*` y `tiempo_total_costura` están en segundos. |
 | `admin_costura_cortes` | `id`, `orden_id`, `rq`, `op`, `producto`, `nombre`, `cantidad`, `estatus` | Orden que terminó corte y queda disponible para reparto. |
 | `admin_costura_asignaciones` | `id`, `orden_id`, `op`, `producto`, `cantidad_asignada`, `id_operador`, `estatus` | Distribución de piezas a cada operador. |
 | `operador_tiempos_costura` | `id_asignacion`, `op`, `producto`, `cantidad_asignada`, `id_operador`, `fecha_inicio`, `fecha_fin`, `tiempo_segundos` | Sesiones reales del cronómetro del operador. |
@@ -263,10 +263,10 @@ La lista de prefijos prioritarios está actualmente duplicada en `app/admin_cost
 | `GET /api/operador/asignaciones?id_operador=45` | ID del operador | Asignaciones activas, métrica base/sugerida en segundos y tiempos reales acumulados. |
 | `POST /api/operador/costura/iniciar` | `{ "asignacion_id": 456 }` | Abre una sesión y devuelve marcas de tiempo de servidor y segundos. |
 | `POST /api/costura-tiempos/terminar` | `{ "id_asignacion": 456, "fecha_fin": "...", "tiempo_segundos": 750, "tipo": "operador" }` | Cierra la sesión abierta y marca la asignación terminada. |
-| `GET /api/productos/tiempos?page=1&pageSize=50` | Parámetros de paginación | `productos` con campos `t_*` numéricos en segundos. |
-| `POST /api/productos/crud` | `{ "accion": "agregar", "producto": { ... } }` | Inserta o actualiza por código único; requiere código y descripción. |
-| `PUT /api/productos/crud` | `{ "accion": "modificar_producto", "id": 10, "producto": { "t_costura": 720 } }` | Actualiza solo campos enviados, valida campos de tiempo y confirma en transacción. |
-| `POST /api/productos/subir-tiempos` | `multipart/form-data`, campo `file` | Importa archivo de productos y devuelve conteos de procesados, omitidos y consolidados. |
+| `GET /api/productos/tiempos?page=1&pageSize=50` | Parámetros de paginación | `productos` con campos de catálogo, `t_*` y `tiempo_total_costura` en segundos. |
+| `POST /api/productos/crud` | `{ "accion": "agregar", "producto": { ... } }` | Inserta o actualiza por código único; requiere código y descripción. Los campos numéricos vacíos se guardan como `NULL`. |
+| `PUT /api/productos/crud` | `{ "accion": "modificar_producto", "id": 10, "producto": { "t_costura": 720 } }` | Actualiza solo campos enviados, valida campos numéricos y confirma en transacción. Devuelve el registro completo actualizado para refrescar la tabla. |
+| `POST /api/productos/subir-tiempos` | `multipart/form-data`, campo `file` | Importa las columnas del catálogo; devuelve conteos de procesados, omitidos y códigos repetidos. Celdas vacías reemplazan el valor existente por `NULL`. |
 | `GET /api/productos/peticiones?history=1` | Parámetros de página | Historial paginado de peticiones y `tiempo_asignado`. |
 | `POST /api/productos/peticiones` | `{ "op": "OP/1", "codigo": "155-20000-DGY", "nombre_secundario": "..." }` | Registra una pendiente o asigna automáticamente una métrica familiar. |
 | `POST /api/productos/peticiones/aprobar` | `peticion_id`, `codigo`, `nombre_secundario`, `costura`, `tiempo` | Guarda métrica en segundos y marca petición como atendida. |
@@ -289,37 +289,32 @@ Al desarrollar un endpoint paginado:
 
 ## 9. Importación del catálogo de tiempos
 
-La ruta `app/api/productos/subir-tiempos/route.ts` lee la primera hoja del archivo con SheetJS, normaliza encabezados a minúsculas y acepta dos esquemas.
+La ruta `app/api/productos/subir-tiempos/route.ts` lee la primera hoja con SheetJS, normaliza los encabezados sin distinguir mayúsculas y acepta `CODIGO` como alias de `cod_proceso`. Ignora `id`; `id_proceso` también es opcional para la hoja.
 
 ### Esquema completo
 
-Incluye todos estos encabezados para que se reconozca como carga completa:
-
 ```text
-id_proceso,cod_proceso,descripcion,costura,t_costura,tapizado,t_tapizado,
-armado,t_armado,montado,t_montado,empaque,t_empaque,corte,t_corte
+CODIGO,MODELO,NOMBRE,LINEA,descripcion,costura,t_costura,
+tiempo_total_costura,tapizado,t_tapizado,armado,t_armado,
+montado,t_montado,empaque,t_empaque,corte,t_corte
 ```
 
-Los valores `t_*` son numéricos y están en segundos. Puedes dejar celdas de otras operaciones vacías cuando no correspondan.
+`CODIGO` se escribe en la columna única `cod_proceso`. `modelo`, `nombre`, `linea`, `descripcion` y las columnas operativas se escriben en sus columnas homónimas. `tiempo_total_costura` se importa como valor independiente; no se calcula a partir de los campos `t_*`.
 
-### Esquema compacto
+SheetJS transforma celdas vacías en `NULL`. El upsert escribe esos `NULL` en la base de datos, incluso al reemplazar un producto existente; así se puede vaciar un dato al importar. Si hay varias filas con el mismo código dentro del archivo, prevalece la última fila. Las filas sin código se omiten. El guardado se realiza en lotes de hasta 200 registros dentro de una transacción.
 
-Si no se detectan todos los encabezados completos, la API intenta el esquema alternativo:
+### Esquema compacto heredado
 
-```text
-codigo,nombre_secundario,costura,tiempo
-```
-
-En este formato, `tiempo` alimenta `t_costura` y también se interpreta como segundos por pieza. La descripción se obtiene de `nombre_secundario` o, como alternativa, de `nombre`.
-
-Las filas sin código se omiten. Códigos repetidos dentro del archivo se consolidan; en métricas repetidas conserva el mayor tiempo y se usa una transacción para guardar lotes de hasta 200 productos. La escritura usa `ON DUPLICATE KEY UPDATE`, por lo que una carga puede modificar datos existentes: valida el archivo antes de subirlo.
+La API también conserva la carga de archivos con encabezados `codigo,nombre_secundario,costura,tiempo`. En ese esquema `tiempo` alimenta `t_costura`; los campos que no vienen en el archivo se guardan vacíos, y no se derivan valores adicionales.
 
 ## 10. Validación y consistencia
 
 - `lib/productosTiempos.ts` centraliza la lectura familiar usada por las consultas de órdenes y operador.
 - `app/api/productos/crud/route.ts` valida que las métricas sean numéricas y mayores o iguales a cero; las celdas vacías se convierten a `NULL`.
 - Una métrica de cero puede guardarse en catálogo, pero no se considera un tiempo disponible en la subconsulta compartida.
-- Las modificaciones de filas usan el ID como identidad. Cambiar `cod_proceso` puede converger con otro código; el endpoint debe manejar la fusión transaccional y la restricción única.
+- Las modificaciones de filas usan `id` como identidad. Si el nuevo `cod_proceso` ya existe, `PUT /api/productos/crud` combina los datos en una transacción y elimina la fila de origen por el índice único. La respuesta incluye el registro destino completo; el cliente lo conserva visible aunque estuviera fuera de las páginas cargadas.
+- Al guardar un cambio de código, la tabla actualiza el término de búsqueda al nuevo código. La búsqueda del catálogo es local y abarca solo las páginas cargadas; el código se normaliza quitando comillas externas y espacios.
+- Las dos migraciones del catálogo se aplican en este orden: `20261025_add_modelo_linea_productos_tiempos.sql` y `20261025_add_nombre_total_productos_tiempos.sql`.
 - Los cambios que alteren prefijos, selección de variantes, unidades o límites de turno requieren revisar todas las pantallas que muestran o consumen tiempos.
 - Las sesiones reales se miden con diferencias de fecha en MySQL (`TIMESTAMPDIFF(SECOND, ...)`) y se acumulan en `tiempo_segundos`.
 

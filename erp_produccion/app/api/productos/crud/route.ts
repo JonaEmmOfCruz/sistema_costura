@@ -4,11 +4,11 @@ import { pool } from '@/lib/db'
 export const dynamic = 'force-dynamic';
 
 const CAMPOS_PRODUCTO = [
-    'id_proceso', 'cod_proceso', 'descripcion', 'costura', 't_costura', 'tapizado', 't_tapizado',
+    'id_proceso', 'cod_proceso', 'modelo', 'nombre', 'descripcion', 'linea', 'costura', 't_costura', 'tiempo_total_costura', 'tapizado', 't_tapizado',
     'armado', 't_armado', 'montado', 't_montado', 'empaque', 't_empaque', 'corte', 't_corte'
 ] as const
 
-const CAMPOS_TIEMPO = new Set(['t_costura', 't_tapizado', 't_armado', 't_montado', 't_empaque', 't_corte'])
+const CAMPOS_TIEMPO = new Set(['t_costura', 'tiempo_total_costura', 't_tapizado', 't_armado', 't_montado', 't_empaque', 't_corte'])
 
 function normalizarCodigoProceso(valor: unknown) {
     return String(valor ?? '').trim().replace(/^["']|["']$/g, '').trim()
@@ -124,7 +124,7 @@ export async function PUT(request: Request) {
                     const valor = campo === 'cod_proceso'
                         ? normalizarCodigoProceso(raw)
                         : String(raw ?? '').trim()
-                    if ((campo === 'cod_proceso' || campo === 'descripcion') && !valor) {
+                    if (campo === 'cod_proceso' && !valor) {
                         return NextResponse.json({ success: false, message: `El campo ${campo} es obligatorio.` }, { status: 400 })
                     }
                     producto[campo] = valor
@@ -170,12 +170,17 @@ export async function PUT(request: Request) {
                         `UPDATE productos_tiempos SET ${updates}, fecha_actualizacion = NOW() WHERE id = ?`,
                         [...CAMPOS_PRODUCTO.map(campo => fusionado[campo]), target.id]
                     )
+                    const [updatedRows]: any = await connection.query(
+                        'SELECT * FROM productos_tiempos WHERE id = ? LIMIT 1',
+                        [target.id]
+                    )
                     await connection.query('DELETE FROM productos_tiempos WHERE id = ?', [id])
                     await connection.commit()
                     return NextResponse.json({
                         success: true,
                         merged: true,
                         targetId: target.id,
+                        producto: updatedRows[0],
                         message: 'Cambios guardados y producto combinado con el registro existente.',
                     })
                 }
@@ -185,8 +190,16 @@ export async function PUT(request: Request) {
                     `UPDATE productos_tiempos SET ${updates}, fecha_actualizacion = NOW() WHERE id = ?`,
                     [...campos.map(campo => producto[campo]), id]
                 )
+                const [updatedRows]: any = await connection.query(
+                    'SELECT * FROM productos_tiempos WHERE id = ? LIMIT 1',
+                    [id]
+                )
                 await connection.commit()
-                return NextResponse.json({ success: true, message: 'Producto actualizado correctamente.' })
+                return NextResponse.json({
+                    success: true,
+                    producto: updatedRows[0],
+                    message: 'Producto actualizado correctamente.'
+                })
             } catch (error) {
                 await connection.rollback()
                 throw error

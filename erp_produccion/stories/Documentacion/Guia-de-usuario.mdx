@@ -260,8 +260,10 @@ Si la solicitud no debe atenderse, pulsa **Rechazar Petición**. El estado queda
 2. Si el registro no aparece, pulsa **Cargar siguientes 50 productos** y vuelve a buscar. La lista se carga por páginas de 50.
 3. Haz clic en la celda que quieres modificar. Los campos `t_*` son numéricos y están expresados en segundos.
 4. Escribe el nuevo valor. Por ejemplo, cambia `t_costura` de `600` a `720` para cambiar el estándar de 10 a 12 minutos por pieza.
-5. Presiona **Enter** o haz clic fuera de la celda. El cambio se guarda automáticamente al salir del campo.
+5. Presiona **Enter** o haz clic fuera de la celda. El cambio se guarda automáticamente al salir del campo. Si editas `CODIGO`, la búsqueda cambia al código actualizado para mantener el registro visible.
 6. Espera el mensaje de guardado y el indicador de nube verde. Si aparece un error, el cambio no debe considerarse guardado.
+
+Si cambias `CODIGO` a uno que ya existe, el sistema combina los datos con ese registro porque el código es único. La fila destino permanece con el código actualizado; la fila de origen deja de aparecer como registro independiente.
 
 **Importante:** no captures `12` para representar 12 minutos en una columna de tiempo. Captura `720` segundos. `12` significaría 12 segundos.
 
@@ -284,15 +286,23 @@ Si la solicitud no debe atenderse, pulsa **Rechazar Petición**. El estado queda
 
 ### Importar productos desde archivo
 
-1. Prepara una hoja con una fila de encabezados y una fila por producto.
-2. Conserva los nombres de columna del catálogo, por ejemplo `cod_proceso`, `descripcion`, `costura`, `t_costura`, `tapizado`, `t_tapizado`, `armado`, `t_armado`, `montado`, `t_montado`, `empaque`, `t_empaque`, `corte`, `t_corte`.
-3. Introduce los tiempos en segundos. No conviertas a minutos antes de importar.
-4. Guarda el archivo en `.xlsx`, `.xls`, `.xltx` o `.csv`.
-5. Arrastra el archivo a **Carga Masiva por Excel** o selecciónalo desde tu equipo.
-6. Pulsa **Subir Excel** y espera el resultado.
-7. Busca algunos códigos importados en el catálogo y confirma que sus tiempos y descripciones sean correctos.
+1. Prepara una hoja con una fila de encabezados y una fila por producto. El archivo puede incluir una columna `id`; el sistema la ignora.
+2. Usa los encabezados del catálogo:
 
-La carga actualiza los registros que coinciden con su código único. Revisa que los encabezados estén escritos correctamente y conserva una copia original del archivo antes de corregir cargas grandes.
+   ```text
+   CODIGO, MODELO, NOMBRE, LINEA, descripcion, costura, t_costura,
+   tiempo_total_costura, tapizado, t_tapizado, armado, t_armado,
+   montado, t_montado, empaque, t_empaque, corte, t_corte
+   ```
+
+   `CODIGO` se guarda en `cod_proceso`. No cambies ese encabezado por `id`.
+3. Captura los tiempos en segundos y conserva el valor de `tiempo_total_costura` tal como aparece en el archivo.
+4. Si una celda está vacía, se guarda vacía (`NULL` en la base de datos); el sistema no completa ni calcula ese campo. Al importar sobre un código existente, una celda vacía también deja vacío el valor anterior de esa columna.
+5. Guarda el archivo en `.xlsx`, `.xls`, `.xltx` o `.csv`.
+6. Arrastra el archivo a **Carga Masiva por Excel** o selecciónalo desde tu equipo y pulsa **Subir Excel**.
+7. Busca algunos códigos importados en el catálogo y confirma que los campos vacíos sigan vacíos.
+
+Si el archivo repite un código, prevalece la última fila, incluidos sus campos vacíos. Revisa los encabezados y conserva una copia del archivo antes de importar cargas grandes.
 
 ## Tabla de referencia de estados
 
@@ -320,7 +330,8 @@ La carga actualiza los registros que coinciden con su código único. Revisa que
 - Pulsa Enter o sal de la celda y espera el resultado.
 - Revisa el mensaje sobre la tabla y el icono de estado de la fila.
 - Busca el código exacto; puede haber otra variante con un código parecido.
-- Si aparece un mensaje de código duplicado, revisa si se trata de un registro existente antes de crear otra fila.
+- Si editaste `CODIGO`, la búsqueda sigue el nuevo código. Si este ya existía, el sistema combina ambos registros y muestra la fila destino.
+- Para buscar un código que no aparece, carga las siguientes páginas; el filtro solo revisa registros ya cargados.
 
 ### La orden aparece en cola
 

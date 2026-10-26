@@ -23,25 +23,33 @@ interface ProductoTiempo {
     id_proceso?: number | string | null
     [key: string]: string | number | null | undefined
     cod_proceso?: string | null
+    modelo?: string | null
+    nombre?: string | null
     descripcion?: string | null
+    linea?: string | null
     t_costura?: number | string | null
+    tiempo_total_costura?: number | string | null
 }
 
 const CAMPOS_PRODUCTO: { key: keyof ProductoTiempo; label: string; numeric?: boolean }[] = [
-    { key: 'cod_proceso', label: 'Código de proceso' },
-    { key: 'descripcion', label: 'Descripción' },
-    { key: 'costura', label: 'Costura' },
-    { key: 't_costura', label: 'Tiempo costura (segundos)', numeric: true },
-    { key: 'tapizado', label: 'Tapizado' },
-    { key: 't_tapizado', label: 'Tiempo tapizado (segundos)', numeric: true },
-    { key: 'armado', label: 'Armado' },
-    { key: 't_armado', label: 'Tiempo armado (segundos)', numeric: true },
-    { key: 'montado', label: 'Montado' },
-    { key: 't_montado', label: 'Tiempo montado (segundos)', numeric: true },
-    { key: 'empaque', label: 'Empaque' },
-    { key: 't_empaque', label: 'Tiempo empaque (segundos)', numeric: true },
-    { key: 'corte', label: 'Corte' },
-    { key: 't_corte', label: 'Tiempo corte (segundos)', numeric: true },
+    { key: 'cod_proceso', label: 'CODIGO' },
+    { key: 'modelo', label: 'MODELO' },
+    { key: 'nombre', label: 'NOMBRE' },
+    { key: 'linea', label: 'LINEA' },
+    { key: 'descripcion', label: 'descripcion' },
+    { key: 'costura', label: 'costura' },
+    { key: 't_costura', label: 't_costura', numeric: true },
+    { key: 'tiempo_total_costura', label: 'tiempo_total_costura', numeric: true },
+    { key: 'tapizado', label: 'tapizado' },
+    { key: 't_tapizado', label: 't_tapizado', numeric: true },
+    { key: 'armado', label: 'armado' },
+    { key: 't_armado', label: 't_armado', numeric: true },
+    { key: 'montado', label: 'montado' },
+    { key: 't_montado', label: 't_montado', numeric: true },
+    { key: 'empaque', label: 'empaque' },
+    { key: 't_empaque', label: 't_empaque', numeric: true },
+    { key: 'corte', label: 'corte' },
+    { key: 't_corte', label: 't_corte', numeric: true },
 ]
 
 const productoVacio = () => Object.fromEntries(CAMPOS_PRODUCTO.map(({ key }) => [key, ''])) as Record<string, string>
@@ -79,14 +87,14 @@ export default function SubirTiemposProductosPage() {
 
     const actualizarCelda = (producto: ProductoTiempo, campo: string, valor: string) => {
         if (producto.id === null || producto.id === undefined) return
-        setBorradoresProductos(current => ({
-            ...current,
-            [producto.id as number]: {
+        setBorradoresProductos(current => {
+            const borrador = {
                 ...Object.fromEntries(CAMPOS_PRODUCTO.map(({ key }) => [key, String(producto[key] ?? '')])),
                 ...current[producto.id as number],
                 [campo]: valor,
-            },
-        }))
+            }
+            return { ...current, [producto.id as number]: borrador }
+        })
     }
 
     const guardarProducto = async (id: number) => {
@@ -106,11 +114,26 @@ export default function SubirTiemposProductosPage() {
             })
             const result = await response.json()
             if (!response.ok || !result.success) throw new Error(result.message || 'No se pudo guardar el producto.')
+            const productoActualizado = result.producto as ProductoTiempo | undefined
             if (result.merged) {
-                setProductos(current => current.filter(row => Number(row.id) !== id))
-                await cargarProductos()
+                setProductos(current => {
+                    const restantes = current.filter(row => Number(row.id) !== id)
+                    if (!productoActualizado) return restantes
+                    const existeDestino = restantes.some(row => Number(row.id) === Number(productoActualizado.id))
+                    return existeDestino
+                        ? restantes.map(row => Number(row.id) === Number(productoActualizado.id) ? productoActualizado : row)
+                        : [...restantes, productoActualizado]
+                })
             } else {
-                setProductos(current => current.map(row => Number(row.id) === id ? { ...row, ...producto } : row))
+                setProductos(current => current.map(row => Number(row.id) === id ? productoActualizado || { ...row, ...producto } : row))
+            }
+            if (Object.prototype.hasOwnProperty.call(producto, 'cod_proceso')) {
+                setBusquedaCatalogo(String(productoActualizado?.cod_proceso ?? producto.cod_proceso ?? ''))
+                setColumnFilters(current => {
+                    const next = { ...current }
+                    delete next.cod_proceso
+                    return next
+                })
             }
             setBorradoresProductos(current => { const next = { ...current }; delete next[id]; return next })
             setEstadoCatalogo({ type: 'success', message: result.message })
@@ -443,8 +466,10 @@ export default function SubirTiemposProductosPage() {
     }
 
     const productosFiltrados = productos.filter(row => {
-        const termino = busquedaCatalogo.trim().toLocaleLowerCase()
-        const coincideBusqueda = !termino || String(row.cod_proceso ?? '').toLocaleLowerCase().includes(termino)
+        const normalizarCodigoBusqueda = (codigo: unknown) =>
+            String(codigo ?? '').trim().replace(/^['"]|['"]$/g, '').trim().toLocaleLowerCase()
+        const termino = normalizarCodigoBusqueda(busquedaCatalogo)
+        const coincideBusqueda = !termino || normalizarCodigoBusqueda(row.cod_proceso).includes(termino)
         return coincideBusqueda && Object.keys(columnFilters).every(fieldKey => {
             const allowedValues = columnFilters[fieldKey]
             if (!allowedValues || allowedValues.length === 0) return true
@@ -703,7 +728,7 @@ export default function SubirTiemposProductosPage() {
                                     <p className="text-sm font-medium text-gray-700">
                                         Arrastra tu archivo aquí, o <span className="text-slate-600 uppercase font-bold">busca en tu equipo</span>
                                     </p>
-                                    <p className="text-xs text-gray-400 mt-1">Formatos soportados: .xltx, .xlsx, .xls, .csv. El archivo Productos carga código, descripción y tiempo de costura en segundos.</p>
+                                    <p className="text-xs text-gray-400 mt-1">Formatos soportados: .xltx, .xlsx, .xls, .csv. Se importan las columnas CODIGO, MODELO, NOMBRE, LINEA, descripcion y los procesos con sus tiempos en segundos. Las celdas vacías se guardan vacías.</p>
                                 </div>
                             )}
 

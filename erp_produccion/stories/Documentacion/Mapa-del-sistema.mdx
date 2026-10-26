@@ -138,7 +138,7 @@ Cada archivo `app/api/**/route.ts` define una ruta. Las tablas siguientes regist
 | `POST /api/productos/crud` | Alta/actualización de producto por código. Entrada: `accion: "agregar"` y `producto`. |
 | `PUT /api/productos/crud` | Actualiza campos de un producto por `id`; acción `modificar_producto`. |
 | `DELETE /api/productos/crud` | Elimina un registro del catálogo según el cuerpo de la petición. |
-| `POST /api/productos/subir-tiempos` | Importa productos y métricas desde hoja de cálculo/CSV. Entrada `multipart/form-data` con campo `file`. |
+| `POST /api/productos/subir-tiempos` | Importa `CODIGO`, `MODELO`, `NOMBRE`, `LINEA`, `descripcion`, procesos y tiempos desde hoja de cálculo/CSV. `CODIGO` se guarda en `cod_proceso`; las celdas vacías pasan a `NULL`. |
 | `GET /api/productos/buscar_modelo?codigo=&nombre=&modelo=` | Busca coincidencia para completar una petición de tiempo. |
 | `GET /api/productos/peticiones?page=&pageSize=` | Devuelve peticiones pendientes. |
 | `GET /api/productos/peticiones?history=1&page=&pageSize=` | Devuelve el historial de estados y el tiempo asociado. |
@@ -186,7 +186,7 @@ Las tablas usan `InnoDB`, `utf8mb4` y la collation `utf8mb4_0900_ai_ci`, salvo o
 | Tabla | Columnas y tipos | Índices / restricciones |
 | --- | --- | --- |
 | `operador_tiempos_costura` | `id INT NOT NULL AUTO_INCREMENT`; `id_asignacion BIGINT NULL`; `rq VARCHAR(50) NULL`; `op VARCHAR(50) NULL`; `producto VARCHAR(100) NULL`; `nombre TEXT NULL`; `cantidad_asignada INT NULL`; `id_operador INT NOT NULL`; `fecha_inicio DATETIME NULL`; `fecha_fin DATETIME NULL`; `creado_en TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`; `tiempo_segundos INT DEFAULT 0` | PK `id`; KEY `(id_operador, op, fecha_fin)`; KEY `(id_asignacion, fecha_fin)`. No declara FKs en el DDL recibido. |
-| `productos_tiempos` | `id INT NOT NULL AUTO_INCREMENT`; `id_proceso INT NULL`; `cod_proceso VARCHAR(255) NULL`; `descripcion TEXT NULL`; `costura VARCHAR(255) NULL`; `t_costura DECIMAL(12,2) NULL`; `tapizado VARCHAR(255) NULL`; `t_tapizado DECIMAL(12,2) NULL`; `armado VARCHAR(255) NULL`; `t_armado DECIMAL(12,2) NULL`; `montado VARCHAR(255) NULL`; `t_montado DECIMAL(12,2) NULL`; `empaque VARCHAR(255) NULL`; `t_empaque DECIMAL(12,2) NULL`; `corte VARCHAR(255) NULL`; `t_corte DECIMAL(12,2) NULL`; `fecha_actualizacion TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` | PK `id`; UNIQUE `uq_productos_tiempos_cod_proceso` en `cod_proceso`. Los campos `t_*` almacenan segundos según la regla funcional de la aplicación. |
+| `productos_tiempos` | `id INT NOT NULL AUTO_INCREMENT`; `id_proceso INT NULL`; `cod_proceso VARCHAR(255) NULL`; `modelo VARCHAR(255) NULL`; `nombre VARCHAR(255) NULL`; `linea VARCHAR(255) NULL`; `descripcion TEXT NULL`; `costura VARCHAR(255) NULL`; `t_costura DECIMAL(12,2) NULL`; `tiempo_total_costura DECIMAL(12,2) NULL`; `tapizado VARCHAR(255) NULL`; `t_tapizado DECIMAL(12,2) NULL`; `armado VARCHAR(255) NULL`; `t_armado DECIMAL(12,2) NULL`; `montado VARCHAR(255) NULL`; `t_montado DECIMAL(12,2) NULL`; `empaque VARCHAR(255) NULL`; `t_empaque DECIMAL(12,2) NULL`; `corte VARCHAR(255) NULL`; `t_corte DECIMAL(12,2) NULL`; `fecha_actualizacion TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP` | PK `id`; UNIQUE `uq_productos_tiempos_cod_proceso` en `cod_proceso`. `CODIGO` del Excel se mapea a `cod_proceso`; `id` no se muestra en la tabla. Los tiempos se almacenan en segundos. |
 | `peticiones_tiempos` | `id INT NOT NULL AUTO_INCREMENT`; `op VARCHAR(100) NULL`; `modelo VARCHAR(255) NOT NULL`; `codigo VARCHAR(255) NOT NULL`; `nombre_secundario TEXT NULL`; `estatus VARCHAR(50) DEFAULT 'pendiente'`; `fecha_solicitud TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP` | PK `id`. |
 | `manuales_produccion` | `id INT NOT NULL AUTO_INCREMENT`; `nombre_original VARCHAR(255) NOT NULL`; `codigo_relacion VARCHAR(50) NULL`; `nombre_archivo VARCHAR(255) NOT NULL`; `ruta VARCHAR(255) NOT NULL`; `tamanio INT NOT NULL`; `tipo VARCHAR(100) NOT NULL`; `fecha_subida TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP` | PK `id`. |
 
@@ -308,6 +308,8 @@ La API de órdenes usa `tiempoCosturaPorPrefijoSql('c')` para agregar `tiempo_ba
 3. La subconsulta compartida de tiempos excluye `N/A`, `NA` y `N/D`; el endpoint de peticiones verifica que el valor de costura no esté vacío y que el tiempo sea positivo, pero no excluye esos literales. Conviene unificar esa validación para evitar que una petición se marque atendida mientras la consulta de estimación ignora el registro.
 4. `admin_costura_ordenes` y `admin_costura_cortes` duplican datos de la orden para el flujo operativo. Las tablas de cortes, asignaciones y tiempos reales no declaran FKs entre ellas en el DDL recibido; las consultas dependen de que los identificadores y datos copiados permanezcan consistentes.
 5. `productos_tiempos.cod_proceso` permite `NULL` aunque tenga índice único. MySQL permite más de un `NULL` en ese índice; la API de catálogo exige código no vacío al crear o modificar productos.
+
+El dump original no incluye `modelo`, `nombre`, `linea` ni `tiempo_total_costura`. Las migraciones versionadas agregan esos campos; aplícalas en orden antes de desplegar la versión actual. La carga importa `tiempo_total_costura` como viene en el archivo, y si está vacío lo conserva como `NULL`.
 
 ## 6. Cobertura del esquema entregado
 
