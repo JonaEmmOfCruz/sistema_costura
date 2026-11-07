@@ -245,10 +245,12 @@ Los valores se proporcionan en el entorno de ejecución; no deben incluirse en e
 | `DB_PASSWORD` | Clave de esa cuenta. |
 | `DB_NAME` | Base que utiliza la aplicación. |
 | `JWT_SECRET` | Clave privada para emitir y verificar sesiones. Debe ser única y configurarse con un valor seguro. |
-| `APP_HOST` | Dirección de escucha del servidor. |
+| `APP_HOST` | Dirección de escucha del servidor; por defecto `0.0.0.0` para permitir acceso desde otros equipos de la red local. No usar `localhost` si se requiere ese acceso. |
 | `PORT` | Puerto HTTP; si no se especifica, el servidor utiliza `3001`. |
 
 Si las variables de conexión no se definen, el proyecto contiene valores locales predeterminados para conectarse a MySQL. En una instalación real se deben configurar explícitamente los datos autorizados y evitar usuarios o claves de ejemplo. El código tiene un secreto alternativo para sesiones cuando `JWT_SECRET` falta: establecer la variable segura antes de operar y revisar este comportamiento como parte de la preparación del entorno.
+
+Para acceder desde otro equipo de la misma red, iniciar con `pnpm dev` o `pnpm start` y abrir `http://<IP-LAN-del-servidor>:3001` (o el puerto configurado). El firewall del servidor debe permitir ese puerto en la red privada. No publicar el servicio directamente en Internet.
 
 ### Comandos de referencia
 

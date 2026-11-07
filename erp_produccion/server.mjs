@@ -1,4 +1,5 @@
 import { createServer } from 'node:http'
+import { networkInterfaces } from 'node:os'
 import next from 'next'
 import { Server } from 'socket.io'
 
@@ -91,6 +92,22 @@ const io = new Server(httpServer, {
 
 app.prepare().then(() => {
   httpServer.listen(port, hostname, () => {
-    console.log(`> Ready on http://${hostname}:${port}`)
+    console.log(`> Listening on ${hostname}:${port}`)
+    console.log(`> Local: http://localhost:${port}`)
+
+    if (hostname === '0.0.0.0') {
+      const addresses = Object.values(networkInterfaces())
+        .flatMap((interfaces) => interfaces ?? [])
+        .filter(({ family, internal }) => family === 'IPv4' && !internal)
+        .map(({ address }) => address)
+
+      for (const address of new Set(addresses)) {
+        console.log(`> Network: http://${address}:${port}`)
+      }
+
+      if (addresses.length === 0) {
+        console.log(`> Listening on all network interfaces; use this machine's LAN IP on port ${port}`)
+      }
+    }
   })
 })

@@ -1,22 +1,26 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Aplicación de gestión de producción construida con [Next.js](https://nextjs.org).
 
 ## Getting Started
 
-First, run the development server:
+Inicia el servidor personalizado (incluye Socket.IO):
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre [http://localhost:3001](http://localhost:3001) en el equipo servidor.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Acceso desde otros dispositivos de la red local
+
+El servidor escucha en todas las interfaces de red (`0.0.0.0`) y, al iniciar, muestra las direcciones LAN disponibles. En otro dispositivo conectado a la misma red Wi-Fi o Ethernet, abre la dirección indicada, por ejemplo `http://192.168.1.25:3001`. Se debe incluir `:3001`; escribir solo la IP intenta conectarse al puerto web predeterminado y no a esta aplicación.
+
+Si no aparece una dirección LAN o no se puede conectar:
+
+- Confirma que ambos dispositivos estén en la misma red y que el router no tenga aislamiento entre clientes o red de invitados.
+- Permite conexiones entrantes al puerto TCP `3001` en el firewall del equipo servidor, limitado a la red privada.
+- No configures `APP_HOST` como `localhost` o `127.0.0.1`; déjalo sin definir para usar `0.0.0.0`.
+
+El acceso descrito es para una red local confiable; no expongas el puerto directamente a Internet.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
